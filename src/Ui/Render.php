@@ -10,7 +10,10 @@ use PhpTui\Tui\Extension\Core\Widget\GridWidget;
 use PhpTui\Tui\Extension\Core\Widget\ParagraphWidget;
 use PhpTui\Tui\Layout\Constraint;
 use PhpTui\Tui\Layout\Layout;
+use PhpTui\Tui\Style\Modifier;
 use PhpTui\Tui\Style\Style;
+use PhpTui\Tui\Text\Line;
+use PhpTui\Tui\Text\Span;
 use PhpTui\Tui\Text\Text;
 use PhpTui\Tui\Widget\Direction;
 use PhpTui\Tui\Widget\Widget;
@@ -110,15 +113,46 @@ final class Render
             ->widgets($panelsGrid, $statusArea);
     }
 
+    /**
+     * Mirrors statusbar.rs render_hint_bar(): row 0 is the function-key
+     * badge row (F3 Disconnect only when connected, with a danger badge),
+     * row 1 the status message.
+     */
     private static function buildHintArea(Area $area, App $app, Theme $theme): Widget
     {
-        $rows = Layout::default()
-            ->direction(Direction::Vertical)
-            ->constraints([Constraint::length(1), Constraint::length(1)])
-            ->split($area);
+        $connected = $app->isConnected();
 
-        $hint = ParagraphWidget::fromText(Text::fromString(self::hintLine($app)))
-            ->style(Style::default()->fg($theme->hintLabel)->bg($theme->hintBarBg));
+        $hints = [
+            ['F1', 'Help', false],
+            ['F2', 'Rename', false],
+            ['F4', 'Edit', false],
+            ['F5', 'Upload', false],
+            ['F6', 'Download', false],
+            ['F7', 'MkDir', false],
+            ['F8', 'Delete', false],
+            ['F9', 'Profile', false],
+            ['!', 'Shell', false],
+            ['^U', 'Swap', false],
+        ];
+        if ($connected) {
+            $hints[] = ['F3', 'Disconnect', true];
+        }
+        $hints[] = ['F10', 'Quit', false];
+
+        $spans = [];
+        foreach ($hints as [$key, $label, $danger]) {
+            $spans[] = new Span(
+                " {$key} ",
+                Style::default()
+                    ->bg($danger ? $theme->hintBadgeDangerBg : $theme->hintBadgeBg)
+                    ->fg($theme->hintBadgeFg)
+                    ->addModifier(Modifier::BOLD),
+            );
+            $spans[] = new Span("{$label} ", Style::default()->fg($theme->hintLabel));
+        }
+
+        $hint = ParagraphWidget::fromText(Text::fromLine(Line::fromSpans(...$spans)))
+            ->style(Style::default()->bg($theme->hintBarBg));
         $status = ParagraphWidget::fromText(Text::fromString(
             $app->statusMessage !== null ? ' ' . $app->statusMessage : ''
         ))->style(Style::default()->fg($theme->statusMessage)->bg($theme->hintBarBg));
@@ -127,15 +161,5 @@ final class Render
             ->direction(Direction::Vertical)
             ->constraints(Constraint::length(1), Constraint::length(1))
             ->widgets($hint, $status);
-    }
-
-    private static function hintLine(App $app): string
-    {
-        $connected = $app->isConnected();
-        $upload = $connected ? ' | F5 hochladen' : '';
-        $download = $connected ? ' | F6 herunterladen' : '';
-
-        return ' Tab wechseln | ↑↓ bewegen | Enter öffnen | Backspace hoch | Leertaste markieren | * alle markieren'
-            . $upload . $download . ' | q beenden';
     }
 }

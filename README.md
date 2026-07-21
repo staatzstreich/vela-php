@@ -191,3 +191,11 @@ throwaway account name; form-visibility and tab-cycle unit tests for the two new
 finishEdit mtime/cleanup logic against real temp files; masked rendering (plaintext never
 appears in the frame buffer); and a live pty session pressing F4 with `EDITOR=true`
 confirming the suspend/resume handoff end to end.
+
+Statusbar done (the last planned piece): `Render::buildHintArea()` now ports
+`statusbar.rs`'s `render_hint_bar()` — a badge-style function-key row (`F1 Help` … `F10
+Quit`, plus `! Shell` and `^U Swap`) instead of the interim plain-text hint line. `F3
+Disconnect` appears only while connected, with the danger-colored badge; row two shows the
+status message. Colors all come from the theme (`hint_badge_*`, `hint_label`,
+`status_message`, `hint_bar_bg`). Verified via DummyBackend (badge presence, F3
+hidden/shown, status row) and a live pty session confirming the bar renders and F10 quits.
