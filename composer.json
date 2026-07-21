@@ -1,0 +1,15 @@
+{
+    "name": "staatzstreich/vela-php",
+    "description": "Feasibility spike: porting the vela SFTP TUI client (Rust/ratatui) to PHP using php-tui.",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.1",
+        "php-tui/php-tui": "^0.2.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "Vela\\": "src/"
+        }
+    }
+}
