@@ -80,6 +80,5 @@ Verified without a live connection: `TransferBarRenderer` output via `DummyBacke
 recursive local file counting against a real scratch directory tree, and the
 marked/highlighted-entry selection logic (incl. that `..` is never included) via a
 reflection-based unit test. A regression pty check confirms the new two-row status area
-didn't break normal navigation. The actual network transfer (F5/F6 against a real server)
-needs a live SFTP session, which — like milestone 3 — needs manual testing in a real
-terminal.
+didn't break normal navigation. Confirmed working end to end against a real server: both
+F5 upload and F6 download tested live by hand.
