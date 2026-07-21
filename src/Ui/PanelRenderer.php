@@ -23,7 +23,7 @@ final class PanelRenderer
 {
     private const COL_PADDING = 2;
 
-    public static function renderPanel(Area $area, PanelState $panel, bool $isActive, string $label): BlockWidget
+    public static function renderPanel(Area $area, PanelState $panel, bool $isActive, string $label, bool $showPermissions = false): BlockWidget
     {
         $borderStyle = $isActive
             ? Style::default()->fg(AnsiColor::Cyan)
@@ -42,7 +42,9 @@ final class PanelRenderer
         $inner = $block->inner($area);
 
         // 1 (mark) + 2 (icon) + padding*2 (two "  " separators) + size + date + 2 (highlight symbol)
-        $fixedCols = 1 + 2 + self::COL_PADDING * 2 + Format::COL_SIZE + Format::COL_DATE + 2;
+        // + padding + perm (only when show_permissions, mirrors the remote panel)
+        $permCols = $showPermissions ? self::COL_PADDING + Format::COL_PERM : 0;
+        $fixedCols = 1 + 2 + self::COL_PADDING * 2 + Format::COL_SIZE + Format::COL_DATE + 2 + $permCols;
         $nameWidth = max(0, $inner->width - $fixedCols);
 
         $items = [];
@@ -65,7 +67,7 @@ final class PanelRenderer
                 ? Format::date($entry->modifiedAt)
                 : sprintf('%' . Format::COL_DATE . 's', '');
 
-            $line = Line::fromSpans(
+            $spans = [
                 new Span($isMarked ? '✓' : ' ', Style::default()->fg(AnsiColor::Yellow)->addModifier(Modifier::BOLD)),
                 new Span($icon, $baseStyle),
                 new Span(Format::padRight(Format::truncateName($entry->name, $nameWidth), $nameWidth), $nameStyle),
@@ -73,9 +75,14 @@ final class PanelRenderer
                 new Span($sizeStr, Style::default()->fg(AnsiColor::Gray)),
                 Span::fromString('  '),
                 new Span($dateStr, Style::default()->fg(AnsiColor::Gray)),
-            );
+            ];
 
-            $items[] = ListItem::new(Text::fromLine($line));
+            if ($showPermissions) {
+                $permStr = sprintf('  %' . Format::COL_PERM . 's', $entry->permissions ?? '');
+                $spans[] = new Span($permStr, Style::default()->fg(AnsiColor::Gray));
+            }
+
+            $items[] = ListItem::new(Text::fromLine(Line::fromSpans(...$spans)));
         }
 
         $list = ListWidget::default()

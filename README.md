@@ -17,5 +17,17 @@ Keys: `Tab` switch panel, `↑`/`↓` move, `Enter` open directory, `Backspace` 
 
 Milestone 2 done: `Vela\Config\ProfileStore` reads/writes `~/.config/vela/profiles.toml`
 in the same TOML shape as the Rust version (0600-enforced), so both can share saved
-connections. Not wired into the UI yet — that lands with SFTP connect (milestone 3) and
-the profile dialog (milestone 6).
+connections.
+
+Milestone 3 done: `Vela\Connection\SftpConnection` (via phpseclib) connects, verifies the
+server's host key against `~/.ssh/known_hosts`, and browses a remote directory — the right
+panel switches from local to remote listing once connected. There's no connect dialog yet
+(that's milestone 6), so it's wired up through a CLI flag in the meantime:
+
+```
+php bin/vela.php --profile="Lokal"
+```
+
+Looks up the named profile from `~/.config/vela/profiles.toml`, prompts for a password on
+the console first if the profile uses password auth, then connects before entering the TUI.
+Key-file auth, mkdir/rename/delete, and actual transfers are later milestones.

@@ -40,8 +40,13 @@ final class Render
             ->constraints([Constraint::percentage(50), Constraint::percentage(50)])
             ->split($rows->get(0));
 
+        $connected = $app->isConnected();
+        $rightLabel = $connected && $app->sftp !== null
+            ? "Remote [{$app->sftp->user}@{$app->sftp->host}]"
+            : 'Remote [nicht verbunden]';
+
         $leftBlock = PanelRenderer::renderPanel($cols->get(0), $app->left, $app->active === ActivePanel::Left, 'Local');
-        $rightBlock = PanelRenderer::renderPanel($cols->get(1), $app->right, $app->active === ActivePanel::Right, 'Local');
+        $rightBlock = PanelRenderer::renderPanel($cols->get(1), $app->right, $app->active === ActivePanel::Right, $rightLabel, $connected);
 
         $panelsGrid = GridWidget::default()
             ->direction(Direction::Horizontal)

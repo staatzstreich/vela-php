@@ -9,6 +9,7 @@ final class Format
 {
     public const COL_SIZE = 9;
     public const COL_DATE = 16;
+    public const COL_PERM = 9;
 
     public static function size(int $bytes): string
     {

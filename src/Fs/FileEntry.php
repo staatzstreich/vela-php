@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Vela\Fs;
 
 /**
- * A single entry in a file panel (local for now — mirrors vela's
- * src/app.rs FileEntry, minus the `permissions` field which only applies
- * to remote/SFTP entries and isn't needed until that milestone).
+ * A single entry in a file panel (local or remote). Mirrors vela's
+ * src/app.rs FileEntry. `permissions` (a "rwxr-xr-x" string) is only set
+ * for remote/SFTP entries.
  */
 final class FileEntry
 {
@@ -16,6 +16,7 @@ final class FileEntry
         public readonly ?int $size,
         public readonly ?int $modifiedAt,
         public readonly bool $isDir,
+        public readonly ?string $permissions = null,
     ) {
     }
 }
