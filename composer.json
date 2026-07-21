@@ -13,5 +13,20 @@
         "psr-4": {
             "Vela\\": "src/"
         }
+    },
+    "require-dev": {
+        "cweagans/composer-patches": "^1.7"
+    },
+    "config": {
+        "allow-plugins": {
+            "cweagans/composer-patches": true
+        }
+    },
+    "extra": {
+        "patches": {
+            "php-tui/term": {
+                "Fix sticky $more flag in EventParser::advance() that can strand a trailing lone ESC in the buffer indefinitely (https://github.com/php-tui/term/blob/main/src/EventParser.php) - see patches/README.md": "patches/php-tui-term-event-parser-more-flag.patch"
+            }
+        }
     }
 }

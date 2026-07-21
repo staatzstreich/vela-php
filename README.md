@@ -53,10 +53,11 @@ php bin/textinput-demo.php
 rendering, `Esc` quits. Verified: unit tests (incl. emoji/umlaut mid-string edits) and a
 real pty session for typing/arrows/backspace/delete.
 
-**Known php-tui/term quirk to watch for in milestone 6** (dialogs cancel via Escape): after
-two or more arrow-key presses followed by a character key, the *next* bare Escape keypress
-can get silently dropped by php-tui/term's event parser — a second Escape right after
-always gets through. Reproduced reliably via scripted pty input; root cause looks like
-stale buffer state in `EventParser`, not something in our own code. No workaround applied
-yet since it doesn't block anything today — worth a mitigation (or an upstream report) once
-dialogs actually depend on Escape-to-cancel.
+**Fixed** the php-tui/term quirk noted above (a bare Escape after 2+ arrow-key presses
+could get silently dropped) via a Composer patch — `EventParser::advance()` had a "sticky"
+`$more` flag that, once true, stayed true for the rest of that read chunk, stranding a
+trailing lone ESC in its internal buffer indefinitely (nothing flushes it once no more
+input arrives). See `patches/README.md` for the full root-cause writeup and
+`patches/php-tui-term-event-parser-more-flag.patch` for the fix; applied automatically via
+`cweagans/composer-patches` on `composer install`. Verified against the exact sequence that
+used to reproduce it, plus a regression check that milestone 1's nav/quit still works.

@@ -1,0 +1,24 @@
+--- a/src/EventParser.php
++++ b/src/EventParser.php
+@@ -43,12 +43,19 @@
+         $bytes = str_split($line);
+ 
+         foreach ($bytes as $index => $byte) {
+-            $more = $index + 1 < strlen($line) || $more;
++            // NOTE: don't reassign $more itself here - doing so makes it
++            // "sticky": once any earlier byte in this chunk had more bytes
++            // after it, $more stays true for every remaining byte in this
++            // call, even a byte that is genuinely the last one. That can
++            // strand a trailing lone ESC in the buffer indefinitely, since
++            // it gets treated as "might be the start of a sequence" and
++            // advance() is only called again once new input arrives.
++            $inputAvailable = $index + 1 < strlen($line) || $more;
+ 
+             $this->buffer[] = $byte;
+ 
+             try {
+-                $event = $this->parseEvent($this->buffer, $more);
++                $event = $this->parseEvent($this->buffer, $inputAvailable);
+             } catch (ParseError) {
+                 $this->buffer = [];
+ 
