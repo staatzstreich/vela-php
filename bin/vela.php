@@ -122,12 +122,22 @@ function run(TermTerminal $terminal, ?SftpConnection $sftp): void
         $display->draw(Render::build($app, $display->viewportArea()));
 
         $event = $terminal->events()->next();
-
-        if ($event instanceof CharKeyEvent || $event instanceof CodedKeyEvent || $event instanceof FunctionKeyEvent) {
-            $app->handleKey($event, makeTransferTick($display, $app));
-        } elseif ($event === null) {
+        if ($event === null) {
             usleep(50_000);
+            continue;
         }
+
+        // Apply every already-buffered event before redrawing again, so a
+        // fast paste or fast typing doesn't trigger one full redraw per
+        // character (each redraw is cheap in isolation, but a naive
+        // one-redraw-per-keystroke loop still makes a paste visibly
+        // "trickle in" character by character).
+        do {
+            if ($event instanceof CharKeyEvent || $event instanceof CodedKeyEvent || $event instanceof FunctionKeyEvent) {
+                $app->handleKey($event, makeTransferTick($display, $app));
+            }
+            $event = $terminal->events()->next();
+        } while ($event !== null && $app->running);
     }
 }
 

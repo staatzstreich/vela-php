@@ -135,6 +135,16 @@ recursive directory deletion) and `runShellCommand` (real `proc_open`, correct c
 capture, exit codes) against real scratch files; a ground-truth event-log trace confirming
 the F1→close→quit sequence dispatches correctly; and `expect -re`-based interactive pty
 sessions for the profile dialog (open → new form → cancel → close) and rename dialog
-(open → cancel), all against a scratch `$HOME` so nothing real gets touched. Not yet tested
-live: the remote (SFTP) side of rename/mkdir/delete, and the password/host-key dialogs
-against a real server — same interactive-password constraint as milestones 3 and 5.
+(open → cancel), all against a scratch `$HOME` so nothing real gets touched.
+
+Live-tested end to end against a real SFTP connection (macOS Remote Login to `localhost`):
+connect flow, host-key-verification dialog, and the remote dialogs all confirmed working.
+
+**Fixed after live testing**: typing into `TextInput` fields (and pasting) was noticeably
+laggy. Two causes, both fixed: `bin/vela.php`'s main loop now drains all currently-buffered
+input events before redrawing, instead of redrawing after every single keystroke (a paste
+used to trigger one full redraw per character); and a new Composer patch
+(`patches/php-tui-term-ansipainter-buffered-write.patch`) batches `AnsiPainter`'s ANSI
+output into one `write()` call per frame instead of one per queued action (cursor move,
+color change, etc. — a full repaint can queue thousands of these). See `patches/README.md`
+for the measurements behind this.

@@ -25,7 +25,8 @@
     "extra": {
         "patches": {
             "php-tui/term": {
-                "Fix sticky $more flag in EventParser::advance() that can strand a trailing lone ESC in the buffer indefinitely (https://github.com/php-tui/term/blob/main/src/EventParser.php) - see patches/README.md": "patches/php-tui-term-event-parser-more-flag.patch"
+                "Fix sticky $more flag in EventParser::advance() that can strand a trailing lone ESC in the buffer indefinitely (https://github.com/php-tui/term/blob/main/src/EventParser.php) - see patches/README.md": "patches/php-tui-term-event-parser-more-flag.patch",
+                "Batch AnsiPainter::paint() into one write() per frame instead of one per queued action, cutting per-frame syscall count from potentially thousands to one - see patches/README.md": "patches/php-tui-term-ansipainter-buffered-write.patch"
             }
         }
     }

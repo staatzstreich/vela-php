@@ -39,3 +39,36 @@ overwriting `$more`. `EventParser` and `SyncTtyEventProvider` are both
 our own code — hence the patch.
 
 Not yet reported upstream (php-tui/term).
+
+## `php-tui-term-ansipainter-buffered-write.patch`
+
+Fixes a real (if unremarkable-looking) performance bug in `AnsiPainter::paint()`
+(`src/Painter/AnsiPainter.php`): it called `$this->writer->write(...)` once per
+queued `Action` — one unbuffered `fwrite()` syscall per cursor move, per color
+change, per printed string fragment. A single full-screen repaint can queue
+many thousands of actions, so this was many thousands of tiny syscalls per
+frame instead of one.
+
+**Symptom**: noticeably laggy typing in `Vela\Ui\TextInput` fields, worse with
+fast typing or pasting — reported after live testing milestone 6's dialogs.
+Measured in isolation: a single `display->draw()` call taking anywhere from
+~250ms to 3+ seconds under a `expect`-scripted pty (see the milestone 6 writeup
+in the main README for how that investigation also uncovered — and ruled out —
+a red herring in `expect`'s own pty-draining behavior; this fix is the one
+that actually addresses real-terminal typing lag).
+
+**Fix**: `drawCommand()` now returns the ANSI string fragment for each action
+instead of writing it directly; `paint()` concatenates all of them into one
+buffer and issues a single `write()` call at the end of the frame. Behavior
+is unchanged (same bytes, same order), just batched into one syscall instead
+of one per action. `AnsiPainter` is `final`, so — same as the other patch —
+this couldn't be done by extending/wrapping it from our own code.
+
+Also worth knowing about (not part of this patch): `bin/vela.php`'s main loop
+was changed to drain *all* currently-buffered input events before triggering
+a redraw, rather than redrawing after every single event. Without that, even
+with this patch, a paste would still visibly "trickle in" one character at a
+time — each redraw is cheap, but a paste of N characters used to mean N
+separate full redraws in a row.
+
+Not yet reported upstream (php-tui/term).
