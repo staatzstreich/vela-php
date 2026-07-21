@@ -33,7 +33,7 @@ date_default_timezone_set(Format::detectLocalTimezone());
 function connectFromCliFlag(): ?SftpConnection
 {
     $profileName = null;
-    foreach ($argv as $arg) {
+    foreach ($_SERVER['argv'] as $arg) {
         if (str_starts_with($arg, '--profile=')) {
             $profileName = substr($arg, strlen('--profile='));
         }
