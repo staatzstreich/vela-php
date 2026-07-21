@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vela\Ui;
 
-use PhpTui\Tui\Color\AnsiColor;
 use PhpTui\Tui\Extension\Core\Widget\BlockWidget;
 use PhpTui\Tui\Extension\Core\Widget\GridWidget;
 use PhpTui\Tui\Extension\Core\Widget\List\ListItem;
@@ -24,6 +23,7 @@ use Vela\Config\AuthMethod;
 use Vela\Dialog\NewProfileForm;
 use Vela\Dialog\ProfileDialog;
 use Vela\Dialog\ProfileDialogMode;
+use Vela\Theme\Theme;
 
 /** Mirrors vela's src/ui/dialogs.rs render_profile_dialog() + render_profile_form() + render_confirm_delete(). */
 final class ProfileDialogRenderer
@@ -38,17 +38,17 @@ final class ProfileDialogRenderer
         NewProfileForm::LOCAL_PATH => 'Lokaler Startpfad (optional)',
     ];
 
-    public static function build(ProfileDialog $dlg): Widget
+    public static function build(ProfileDialog $dlg, Theme $theme): Widget
     {
         return match ($dlg->mode) {
-            ProfileDialogMode::ListMode => self::buildList($dlg),
-            ProfileDialogMode::New => self::buildForm($dlg, ' Neues Profil '),
-            ProfileDialogMode::Edit => self::buildForm($dlg, ' Profil bearbeiten '),
-            ProfileDialogMode::ConfirmDelete => self::buildConfirmDelete($dlg),
+            ProfileDialogMode::ListMode => self::buildList($dlg, $theme),
+            ProfileDialogMode::New => self::buildForm($dlg, ' Neues Profil ', $theme),
+            ProfileDialogMode::Edit => self::buildForm($dlg, ' Profil bearbeiten ', $theme),
+            ProfileDialogMode::ConfirmDelete => self::buildConfirmDelete($dlg, $theme),
         };
     }
 
-    private static function buildList(ProfileDialog $dlg): Widget
+    private static function buildList(ProfileDialog $dlg, Theme $theme): Widget
     {
         $profiles = $dlg->store->profiles;
 
@@ -58,26 +58,26 @@ final class ProfileDialogRenderer
                 ->constraints(Constraint::min(0), Constraint::length(1))
                 ->widgets(
                     ParagraphWidget::fromText(Text::fromString('Keine Profile vorhanden. N = Neu anlegen'))
-                        ->style(Style::default()->fg(AnsiColor::Gray)),
-                    ParagraphWidget::fromText(Text::fromLine(DialogChrome::hints(['N' => 'Neu', 'Esc' => 'Schließen']))),
+                        ->style(Style::default()->fg($theme->textMuted)),
+                    ParagraphWidget::fromText(Text::fromLine(DialogChrome::hints(['N' => 'Neu', 'Esc' => 'Schließen'], $theme))),
                 );
         } else {
             $items = [];
             foreach ($profiles as $i => $p) {
                 $marker = $dlg->activeProfile === $i ? '● ' : '  ';
                 $items[] = ListItem::new(Text::fromLine(Line::fromSpans(
-                    new Span($marker, Style::default()->fg(AnsiColor::Green)),
-                    new Span(Format::padRight($p->name, 20), Style::default()->fg(AnsiColor::White)->addModifier(Modifier::BOLD)),
-                    new Span("  {$p->user}@{$p->host}:{$p->port}", Style::default()->fg(AnsiColor::Gray)),
-                    new Span('  [' . $p->auth->value . ']', Style::default()->fg(AnsiColor::DarkGray)),
+                    new Span($marker, Style::default()->fg($theme->profileActive)),
+                    new Span(Format::padRight($p->name, 20), Style::default()->fg($theme->textPrimary)->addModifier(Modifier::BOLD)),
+                    new Span("  {$p->user}@{$p->host}:{$p->port}", Style::default()->fg($theme->textSecondary)),
+                    new Span('  [' . $p->auth->value . ']', Style::default()->fg($theme->textMuted)),
                 )));
             }
 
             $list = ListWidget::default()
                 ->items(...$items)
                 ->select($dlg->listSelected)
-                ->highlightStyle(Style::default()->bg(AnsiColor::Blue)->fg(AnsiColor::White)->addModifier(Modifier::BOLD))
-                ->highlightSymbol('► ');
+                ->highlightStyle(Style::default()->bg($theme->highlightPrimaryBg)->fg($theme->highlightPrimaryFg)->addModifier(Modifier::BOLD))
+                ->highlightSymbol(Theme::HIGHLIGHT_SYMBOL);
 
             $body = GridWidget::default()
                 ->direction(Direction::Vertical)
@@ -90,20 +90,20 @@ final class ProfileDialogRenderer
                         'E / F2' => 'Bearbeiten',
                         'D' => 'Löschen',
                         'Esc' => 'Schließen',
-                    ]))),
+                    ], $theme))),
                 );
         }
 
         $block = BlockWidget::default()
             ->borders(Borders::ALL)
             ->titles(Title::fromString(' Verbindungsprofile (F9) '))
-            ->borderStyle(Style::default()->fg(AnsiColor::Cyan))
+            ->borderStyle(Style::default()->fg($theme->dialogActiveBorder))
             ->widget($body);
 
         return new CenteredBox(70, 80, $block);
     }
 
-    private static function buildForm(ProfileDialog $dlg, string $title): Widget
+    private static function buildForm(ProfileDialog $dlg, string $title, Theme $theme): Widget
     {
         $form = $dlg->form;
         $visibleFields = array_filter(
@@ -116,8 +116,8 @@ final class ProfileDialogRenderer
         foreach ($visibleFields as $field) {
             $constraints[] = Constraint::length(3);
             $rowWidgets[] = $field === NewProfileForm::AUTH
-                ? self::buildAuthToggleRow($form, $dlg->field === $field)
-                : self::buildTextFieldRow($form, $field, $dlg->field === $field);
+                ? self::buildAuthToggleRow($form, $dlg->field === $field, $theme)
+                : self::buildTextFieldRow($form, $field, $dlg->field === $field, $theme);
         }
         $constraints[] = Constraint::min(0);
         $rowWidgets[] = ParagraphWidget::fromText(Text::fromString(''));
@@ -126,7 +126,7 @@ final class ProfileDialogRenderer
             'Tab' => 'Nächstes Feld',
             'Enter' => 'Speichern',
             'Esc' => 'Abbrechen',
-        ])));
+        ], $theme)));
 
         $body = GridWidget::default()
             ->direction(Direction::Vertical)
@@ -136,56 +136,56 @@ final class ProfileDialogRenderer
         $block = BlockWidget::default()
             ->borders(Borders::ALL)
             ->titles(Title::fromString($title))
-            ->borderStyle(Style::default()->fg(AnsiColor::Yellow))
+            ->borderStyle(Style::default()->fg($theme->dialogWarningBorder))
             ->widget($body);
 
         return new CenteredBox(70, 80, $block);
     }
 
-    private static function buildTextFieldRow(NewProfileForm $form, int $field, bool $isActive): Widget
+    private static function buildTextFieldRow(NewProfileForm $form, int $field, bool $isActive, Theme $theme): Widget
     {
         $value = $form->fieldValue($field) ?? '';
         $valueStyle = $isActive
-            ? Style::default()->fg(AnsiColor::White)->addModifier(Modifier::BOLD)
-            : Style::default()->fg(AnsiColor::Gray);
+            ? Style::default()->fg($theme->textActive)->addModifier(Modifier::BOLD)
+            : Style::default()->fg($theme->textInactive);
 
         $spans = [new Span($value, $valueStyle)];
         if ($isActive) {
-            $spans[] = new Span('█', Style::default()->fg(AnsiColor::Cyan));
+            $spans[] = new Span('█', Style::default()->fg($theme->cursorBg));
         }
 
         return BlockWidget::default()
             ->borders(Borders::ALL)
             ->titles(Title::fromString(' ' . self::FIELD_LABELS[$field] . ' '))
-            ->borderStyle(Style::default()->fg($isActive ? AnsiColor::Cyan : AnsiColor::DarkGray))
+            ->borderStyle(Style::default()->fg($isActive ? $theme->dialogActiveBorder : $theme->dialogInactiveBorder))
             ->widget(ParagraphWidget::fromText(Text::fromLine(Line::fromSpans(...$spans))));
     }
 
-    private static function buildAuthToggleRow(NewProfileForm $form, bool $isActive): Widget
+    private static function buildAuthToggleRow(NewProfileForm $form, bool $isActive, Theme $theme): Widget
     {
         $keyStyle = $form->auth === AuthMethod::Key
-            ? Style::default()->fg(AnsiColor::Green)->addModifier(Modifier::BOLD)
-            : Style::default()->fg(AnsiColor::Gray);
+            ? Style::default()->fg($theme->toggleOn)->addModifier(Modifier::BOLD)
+            : Style::default()->fg($theme->toggleOff);
         $pwStyle = $form->auth === AuthMethod::Password
-            ? Style::default()->fg(AnsiColor::Green)->addModifier(Modifier::BOLD)
-            : Style::default()->fg(AnsiColor::Gray);
+            ? Style::default()->fg($theme->toggleOn)->addModifier(Modifier::BOLD)
+            : Style::default()->fg($theme->toggleOff);
 
         $spans = [
             new Span('● key   ', $keyStyle),
             new Span('● password', $pwStyle),
         ];
         if ($isActive) {
-            $spans[] = new Span('  [Space]', Style::default()->fg(AnsiColor::DarkGray));
+            $spans[] = new Span('  [Space]', Style::default()->fg($theme->textMuted));
         }
 
         return BlockWidget::default()
             ->borders(Borders::ALL)
             ->titles(Title::fromString(' Auth '))
-            ->borderStyle(Style::default()->fg($isActive ? AnsiColor::Cyan : AnsiColor::DarkGray))
+            ->borderStyle(Style::default()->fg($isActive ? $theme->dialogActiveBorder : $theme->dialogInactiveBorder))
             ->widget(ParagraphWidget::fromText(Text::fromLine(Line::fromSpans(...$spans))));
     }
 
-    private static function buildConfirmDelete(ProfileDialog $dlg): Widget
+    private static function buildConfirmDelete(ProfileDialog $dlg, Theme $theme): Widget
     {
         $name = $dlg->deleteIndex !== null && isset($dlg->store->profiles[$dlg->deleteIndex])
             ? $dlg->store->profiles[$dlg->deleteIndex]->name
@@ -196,17 +196,17 @@ final class ProfileDialogRenderer
             ->constraints(Constraint::min(0), Constraint::length(1))
             ->widgets(
                 ParagraphWidget::fromText(Text::fromLine(Line::fromSpans(
-                    new Span('Profil "', Style::default()->fg(AnsiColor::White)),
-                    new Span($name, Style::default()->fg(AnsiColor::Yellow)->addModifier(Modifier::BOLD)),
-                    new Span('" wirklich löschen?', Style::default()->fg(AnsiColor::White)),
+                    new Span('Profil "', Style::default()->fg($theme->textPrimary)),
+                    new Span($name, Style::default()->fg($theme->textWarning)->addModifier(Modifier::BOLD)),
+                    new Span('" wirklich löschen?', Style::default()->fg($theme->textPrimary)),
                 ))),
-                ParagraphWidget::fromText(Text::fromLine(DialogChrome::hints(['Enter / Y' => 'Ja', 'Esc / N' => 'Nein']))),
+                ParagraphWidget::fromText(Text::fromLine(DialogChrome::hints(['Enter / Y' => 'Ja', 'Esc / N' => 'Nein'], $theme))),
             );
 
         $block = BlockWidget::default()
             ->borders(Borders::ALL)
             ->titles(Title::fromString(' Profil löschen? '))
-            ->borderStyle(Style::default()->fg(AnsiColor::Red))
+            ->borderStyle(Style::default()->fg($theme->dialogErrorBorder))
             ->widget($body);
 
         return new CenteredBox(50, 30, $block);

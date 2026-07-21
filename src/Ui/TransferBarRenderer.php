@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Vela\Ui;
 
 use PhpTui\Tui\Color\AnsiColor;
-use PhpTui\Tui\Color\Color;
 use PhpTui\Tui\Display\Area;
 use PhpTui\Tui\Extension\Core\Widget\GridWidget;
 use PhpTui\Tui\Extension\Core\Widget\ParagraphWidget;
@@ -18,6 +17,7 @@ use PhpTui\Tui\Text\Span;
 use PhpTui\Tui\Text\Text;
 use PhpTui\Tui\Widget\Direction;
 use PhpTui\Tui\Widget\Widget;
+use Vela\Theme\Theme;
 use Vela\Transfer\TransferProgress;
 
 /**
@@ -28,8 +28,10 @@ use Vela\Transfer\TransferProgress;
  */
 final class TransferBarRenderer
 {
-    public static function build(Area $area, TransferProgress $progress, string $verb, Color $barColor): Widget
+    public static function build(Area $area, TransferProgress $progress, string $verb, Theme $theme): Widget
     {
+        $barColor = $verb === 'Download' ? $theme->downloadBar : $theme->uploadBar;
+
         $rows = Layout::default()
             ->direction(Direction::Vertical)
             ->constraints([Constraint::length(1), Constraint::length(1)])
@@ -39,12 +41,12 @@ final class TransferBarRenderer
             ->direction(Direction::Vertical)
             ->constraints(Constraint::length(1), Constraint::length(1))
             ->widgets(
-                self::buildBar($rows->get(0), $progress, $verb, $barColor),
-                self::buildFilenameRow($rows->get(1), $progress),
+                self::buildBar($rows->get(0), $progress, $verb, $barColor, $theme),
+                self::buildFilenameRow($rows->get(1), $progress, $theme),
             );
     }
 
-    private static function buildBar(Area $area, TransferProgress $progress, string $verb, Color $barColor): Widget
+    private static function buildBar(Area $area, TransferProgress $progress, string $verb, AnsiColor $barColor, Theme $theme): Widget
     {
         $width = $area->width;
         $fraction = $progress->overallFraction();
@@ -70,14 +72,14 @@ final class TransferBarRenderer
         $emptyStr = implode('', array_slice($barChars, $filled));
 
         $line = Line::fromSpans(
-            new Span($filledStr, Style::default()->fg(AnsiColor::Black)->bg($barColor)->addModifier(Modifier::BOLD)),
-            new Span($emptyStr, Style::default()->fg($barColor)),
+            new Span($filledStr, Style::default()->fg($theme->transferFilledFg)->bg($barColor)->addModifier(Modifier::BOLD)),
+            new Span($emptyStr, Style::default()->fg($barColor)->bg($theme->transferEmptyBg)),
         );
 
         return ParagraphWidget::fromText(Text::fromLine($line));
     }
 
-    private static function buildFilenameRow(Area $area, TransferProgress $progress): Widget
+    private static function buildFilenameRow(Area $area, TransferProgress $progress, Theme $theme): Widget
     {
         $detail = '';
         if ($progress->currentFile !== '') {
@@ -88,6 +90,6 @@ final class TransferBarRenderer
         }
 
         return ParagraphWidget::fromText(Text::fromString($detail))
-            ->style(Style::default()->fg(AnsiColor::Gray));
+            ->style(Style::default()->fg($theme->filenameText)->bg($theme->transferRowBg));
     }
 }

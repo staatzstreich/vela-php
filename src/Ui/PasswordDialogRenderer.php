@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vela\Ui;
 
-use PhpTui\Tui\Color\AnsiColor;
 use PhpTui\Tui\Extension\Core\Widget\BlockWidget;
 use PhpTui\Tui\Extension\Core\Widget\GridWidget;
 use PhpTui\Tui\Extension\Core\Widget\ParagraphWidget;
@@ -18,26 +17,27 @@ use PhpTui\Tui\Widget\Borders;
 use PhpTui\Tui\Widget\Direction;
 use PhpTui\Tui\Widget\Widget;
 use Vela\Dialog\PasswordDialog;
+use Vela\Theme\Theme;
 
 /** Mirrors vela's src/ui/dialogs.rs render_password_dialog(). */
 final class PasswordDialogRenderer
 {
-    public static function build(PasswordDialog $dlg): Widget
+    public static function build(PasswordDialog $dlg, Theme $theme): Widget
     {
         $hasError = $dlg->error !== null;
 
-        $textStyle = Style::default()->fg(AnsiColor::White);
-        $cursorStyle = Style::default()->bg(AnsiColor::White)->fg(AnsiColor::Black);
+        $textStyle = Style::default()->fg($theme->textPrimary);
+        $cursorStyle = Style::default()->bg($theme->cursorBg)->fg($theme->cursorFg);
         $inputLine = TextInputRenderer::line($dlg->input, $textStyle, $cursorStyle, masked: true);
 
         $inputBlock = BlockWidget::default()
             ->borders(Borders::ALL)
             ->titles(Title::fromString(' Passwort '))
-            ->borderStyle(Style::default()->fg(AnsiColor::Cyan))
+            ->borderStyle(Style::default()->fg($theme->dialogActiveBorder))
             ->widget(ParagraphWidget::fromText(Text::fromLine($inputLine)));
 
         $errorLine = $hasError
-            ? Line::fromSpans(new Span('✗ ' . $dlg->error, Style::default()->fg(AnsiColor::Red)))
+            ? Line::fromSpans(new Span('✗ ' . $dlg->error, Style::default()->fg($theme->textDanger)))
             : Line::fromString('');
 
         $body = GridWidget::default()
@@ -47,13 +47,13 @@ final class PasswordDialogRenderer
                 $inputBlock,
                 ParagraphWidget::fromText(Text::fromLine($errorLine)),
                 ParagraphWidget::fromText(Text::fromString('')),
-                ParagraphWidget::fromText(Text::fromLine(DialogChrome::hints(['Enter' => 'Verbinden', 'Esc' => 'Abbrechen']))),
+                ParagraphWidget::fromText(Text::fromLine(DialogChrome::hints(['Enter' => 'Verbinden', 'Esc' => 'Abbrechen'], $theme))),
             );
 
         $block = BlockWidget::default()
             ->borders(Borders::ALL)
             ->titles(Title::fromString(" Passwort für {$dlg->profile->user}@{$dlg->profile->host} "))
-            ->borderStyle(Style::default()->fg($hasError ? AnsiColor::Red : AnsiColor::Yellow))
+            ->borderStyle(Style::default()->fg($hasError ? $theme->dialogErrorBorder : $theme->dialogWarningBorder))
             ->widget($body);
 
         return new CenteredBox(50, 40, $block);

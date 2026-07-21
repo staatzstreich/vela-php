@@ -8,6 +8,7 @@ use PhpTui\Term\Event\CharKeyEvent;
 use PhpTui\Term\Event\CodedKeyEvent;
 use PhpTui\Term\Event\FunctionKeyEvent;
 use PhpTui\Term\KeyCode;
+use PhpTui\Term\KeyModifiers;
 use Throwable;
 use Vela\Config\AuthMethod;
 use Vela\Config\Profile;
@@ -31,6 +32,8 @@ use Vela\Fs\PanelState;
 use Vela\Transfer\TransferEngine;
 use Vela\Transfer\TransferProgress;
 use Vela\Transfer\TransferState;
+use Vela\Theme\ThemeChoice;
+use Vela\Theme\ThemeStore;
 
 /**
  * Central app state and key dispatch. Mirrors vela's src/app.rs App struct
@@ -79,12 +82,20 @@ final class App
 
     public ?ProfileDialog $profileDialog = null;
 
+    public ThemeChoice $themeChoice;
+
+    /** Purely visual — which physical side shows the local vs. remote panel. The data model is unchanged. */
+    public bool $panelsSwapped = false;
+
     public function __construct(string $leftPath, string $rightPath)
     {
         $this->left = new PanelState($leftPath);
         $this->right = new PanelState($rightPath);
         $this->left->loadLocal();
         $this->right->loadLocal();
+
+        ThemeStore::ensureThemes();
+        $this->themeChoice = ThemeStore::loadThemeChoice();
 
         try {
             ProfileStore::load();
@@ -153,6 +164,21 @@ final class App
             }
 
             return;
+        }
+
+        // Ctrl+U / Ctrl+S — swap panels visually; Ctrl+T — cycle theme.
+        // Both work from any mode, same as in main.rs's handle_events().
+        if ($event instanceof CharKeyEvent && ($event->modifiers & KeyModifiers::CONTROL) !== 0) {
+            if ($event->char === 'u' || $event->char === 's') {
+                $this->panelsSwapped = !$this->panelsSwapped;
+
+                return;
+            }
+            if ($event->char === 't') {
+                $this->cycleTheme();
+
+                return;
+            }
         }
 
         if ($this->hostKeyDialog !== null) {
@@ -1025,6 +1051,34 @@ final class App
         $dlg->scroll = 0;
         $this->tryRun(fn () => $this->left->loadLocal());
         $this->statusMessage = "! {$cmd} — Exit {$dlg->exitCode}";
+    }
+
+    // -------------------------------------------------------------------
+    // Theme (Ctrl+T)
+    // -------------------------------------------------------------------
+
+    private function cycleTheme(): void
+    {
+        $customs = ThemeStore::customThemeNames();
+        $this->themeChoice = self::nextTheme($this->themeChoice, $customs);
+        ThemeStore::saveThemeChoice($this->themeChoice);
+        $this->statusMessage = "Theme: {$this->themeChoice->label()}";
+    }
+
+    /** @param string[] $customs */
+    private static function nextTheme(ThemeChoice $current, array $customs): ThemeChoice
+    {
+        $list = [ThemeChoice::auto(), ThemeChoice::dark(), ThemeChoice::light()];
+        foreach ($customs as $name) {
+            $list[] = ThemeChoice::custom($name);
+        }
+        foreach ($list as $i => $choice) {
+            if ($choice->equals($current)) {
+                return $list[($i + 1) % count($list)];
+            }
+        }
+
+        return ThemeChoice::auto();
     }
 
     // -------------------------------------------------------------------

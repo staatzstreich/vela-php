@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vela\Ui;
 
-use PhpTui\Tui\Color\AnsiColor;
 use PhpTui\Tui\Display\Area;
 use PhpTui\Tui\Extension\Core\Widget\CompositeWidget;
 use PhpTui\Tui\Extension\Core\Widget\GridWidget;
@@ -17,6 +16,7 @@ use PhpTui\Tui\Widget\Direction;
 use PhpTui\Tui\Widget\Widget;
 use Vela\ActivePanel;
 use Vela\App;
+use Vela\Theme\Theme;
 
 /**
  * Top-level frame composition. Mirrors vela's src/ui/mod.rs render(): main
@@ -29,41 +29,42 @@ final class Render
 {
     public static function build(App $app, Area $viewport): Widget
     {
-        $frame = self::buildFrame($app, $viewport);
+        $theme = $app->themeChoice->resolve();
+        $frame = self::buildFrame($app, $viewport, $theme);
 
         $layers = [$frame];
         if ($app->profileDialog !== null) {
-            $layers[] = ProfileDialogRenderer::build($app->profileDialog);
+            $layers[] = ProfileDialogRenderer::build($app->profileDialog, $theme);
         }
         if ($app->passwordDialog !== null) {
-            $layers[] = PasswordDialogRenderer::build($app->passwordDialog);
+            $layers[] = PasswordDialogRenderer::build($app->passwordDialog, $theme);
         }
         if ($app->renameDialog !== null) {
-            $layers[] = RenameDialogRenderer::build($app->renameDialog);
+            $layers[] = RenameDialogRenderer::build($app->renameDialog, $theme);
         }
         if ($app->mkdirDialog !== null) {
-            $layers[] = MkdirDialogRenderer::build($app->mkdirDialog);
+            $layers[] = MkdirDialogRenderer::build($app->mkdirDialog, $theme);
         }
         if ($app->deleteDialog !== null) {
-            $layers[] = DeleteDialogRenderer::build($app->deleteDialog);
+            $layers[] = DeleteDialogRenderer::build($app->deleteDialog, $theme);
         }
         if ($app->shellDialog !== null) {
-            $layers[] = ShellDialogRenderer::build($app->shellDialog, $app->left->path);
+            $layers[] = ShellDialogRenderer::build($app->shellDialog, $app->left->path, $theme);
         }
         if ($app->permissionDialog !== null) {
-            $layers[] = PermissionDialogRenderer::build($app->permissionDialog);
+            $layers[] = PermissionDialogRenderer::build($app->permissionDialog, $theme);
         }
         if ($app->hostKeyDialog !== null) {
-            $layers[] = HostKeyDialogRenderer::build($app->hostKeyDialog);
+            $layers[] = HostKeyDialogRenderer::build($app->hostKeyDialog, $theme);
         }
         if ($app->helpVisible) {
-            $layers[] = HelpDialogRenderer::build();
+            $layers[] = HelpDialogRenderer::build($theme);
         }
 
         return count($layers) === 1 ? $frame : CompositeWidget::fromWidgets(...$layers);
     }
 
-    private static function buildFrame(App $app, Area $viewport): Widget
+    private static function buildFrame(App $app, Area $viewport, Theme $theme): Widget
     {
         // Split eagerly (in addition to the GridWidget below, which does the
         // same solve again at render time) purely so panel content sizing
@@ -85,22 +86,23 @@ final class Render
             ? "Remote [{$app->sftp->user}@{$app->sftp->host}]"
             : 'Remote [nicht verbunden]';
 
-        $leftBlock = PanelRenderer::renderPanel($cols->get(0), $app->left, $app->active === ActivePanel::Left, 'Local');
-        $rightBlock = PanelRenderer::renderPanel($cols->get(1), $app->right, $app->active === ActivePanel::Right, $rightLabel, $connected);
+        // Purely visual — which physical side shows local vs. remote. The
+        // data model (app->left is always local) never changes.
+        [$localArea, $remoteArea] = $app->panelsSwapped ? [$cols->get(1), $cols->get(0)] : [$cols->get(0), $cols->get(1)];
+
+        $localBlock = PanelRenderer::renderPanel($localArea, $app->left, $app->active === ActivePanel::Left, 'Local', $theme);
+        $remoteBlock = PanelRenderer::renderPanel($remoteArea, $app->right, $app->active === ActivePanel::Right, $rightLabel, $theme, $connected);
+
+        [$physicalLeft, $physicalRight] = $app->panelsSwapped ? [$remoteBlock, $localBlock] : [$localBlock, $remoteBlock];
 
         $panelsGrid = GridWidget::default()
             ->direction(Direction::Horizontal)
             ->constraints(Constraint::percentage(50), Constraint::percentage(50))
-            ->widgets($leftBlock, $rightBlock);
+            ->widgets($physicalLeft, $physicalRight);
 
         $statusArea = $app->activeTransfer !== null
-            ? TransferBarRenderer::build(
-                $rows->get(1),
-                $app->activeTransfer,
-                $app->activeTransferVerb,
-                $app->activeTransferVerb === 'Download' ? AnsiColor::Magenta : AnsiColor::Green,
-            )
-            : self::buildHintArea($rows->get(1), $app);
+            ? TransferBarRenderer::build($rows->get(1), $app->activeTransfer, $app->activeTransferVerb, $theme)
+            : self::buildHintArea($rows->get(1), $app, $theme);
 
         return GridWidget::default()
             ->direction(Direction::Vertical)
@@ -108,7 +110,7 @@ final class Render
             ->widgets($panelsGrid, $statusArea);
     }
 
-    private static function buildHintArea(Area $area, App $app): Widget
+    private static function buildHintArea(Area $area, App $app, Theme $theme): Widget
     {
         $rows = Layout::default()
             ->direction(Direction::Vertical)
@@ -116,10 +118,10 @@ final class Render
             ->split($area);
 
         $hint = ParagraphWidget::fromText(Text::fromString(self::hintLine($app)))
-            ->style(Style::default()->fg(AnsiColor::DarkGray));
+            ->style(Style::default()->fg($theme->hintLabel)->bg($theme->hintBarBg));
         $status = ParagraphWidget::fromText(Text::fromString(
             $app->statusMessage !== null ? ' ' . $app->statusMessage : ''
-        ))->style(Style::default()->fg(AnsiColor::Yellow));
+        ))->style(Style::default()->fg($theme->statusMessage)->bg($theme->hintBarBg));
 
         return GridWidget::default()
             ->direction(Direction::Vertical)

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vela\Ui;
 
-use PhpTui\Tui\Color\AnsiColor;
 use PhpTui\Tui\Extension\Core\Widget\BlockWidget;
 use PhpTui\Tui\Extension\Core\Widget\GridWidget;
 use PhpTui\Tui\Extension\Core\Widget\ParagraphWidget;
@@ -18,19 +17,20 @@ use PhpTui\Tui\Widget\Borders;
 use PhpTui\Tui\Widget\Direction;
 use PhpTui\Tui\Widget\Widget;
 use Vela\Dialog\ShellDialog;
+use Vela\Theme\Theme;
 
 /** Mirrors vela's src/ui/dialogs.rs render_shell_dialog() (dispatches by phase). */
 final class ShellDialogRenderer
 {
-    public static function build(ShellDialog $dlg, string $cwd): Widget
+    public static function build(ShellDialog $dlg, string $cwd, Theme $theme): Widget
     {
-        return $dlg->output === null ? self::buildInput($dlg, $cwd) : self::buildOutput($dlg);
+        return $dlg->output === null ? self::buildInput($dlg, $cwd, $theme) : self::buildOutput($dlg, $theme);
     }
 
-    private static function buildInput(ShellDialog $dlg, string $cwd): Widget
+    private static function buildInput(ShellDialog $dlg, string $cwd, Theme $theme): Widget
     {
-        $textStyle = Style::default()->fg(AnsiColor::White);
-        $cursorStyle = Style::default()->bg(AnsiColor::White)->fg(AnsiColor::Black);
+        $textStyle = Style::default()->fg($theme->textPrimary);
+        $cursorStyle = Style::default()->bg($theme->shellCursorBg)->fg($theme->shellCursorFg);
         $inputLine = TextInputRenderer::line($dlg->input, $textStyle, $cursorStyle);
 
         $body = GridWidget::default()
@@ -38,32 +38,33 @@ final class ShellDialogRenderer
             ->constraints(Constraint::length(1), Constraint::length(1), Constraint::length(1), Constraint::length(1))
             ->widgets(
                 ParagraphWidget::fromText(Text::fromLine(Line::fromSpans(
-                    new Span(' Befehl:', Style::default()->fg(AnsiColor::Yellow))
+                    new Span(' Befehl:', Style::default()->fg($theme->shellLabel))
                 ))),
                 ParagraphWidget::fromText(Text::fromLine(Line::fromSpans(
                     Span::fromString(' '),
                     ...$inputLine->spans,
                 ))),
                 ParagraphWidget::fromText(Text::fromString('')),
-                ParagraphWidget::fromText(Text::fromLine(DialogChrome::hints(['Enter' => 'Ausführen', 'Esc' => 'Abbrechen']))),
+                ParagraphWidget::fromText(Text::fromLine(DialogChrome::hints(['Enter' => 'Ausführen', 'Esc' => 'Abbrechen'], $theme))),
             );
 
         $block = BlockWidget::default()
             ->borders(Borders::ALL)
             ->titles(Title::fromString(" Shell  {$cwd}  "))
-            ->borderStyle(Style::default()->fg(AnsiColor::Yellow))
+            ->borderStyle(Style::default()->fg($theme->dialogWarningBorder))
             ->widget($body);
 
         return new CenteredBox(70, 25, $block);
     }
 
-    private static function buildOutput(ShellDialog $dlg): Widget
+    private static function buildOutput(ShellDialog $dlg, Theme $theme): Widget
     {
         $lines = array_map(
-            static fn (string $l): Line => Line::fromSpans(new Span($l, Style::default()->fg(AnsiColor::White))),
+            static fn (string $l): Line => Line::fromSpans(new Span($l, Style::default()->fg($theme->textPrimary))),
             $dlg->output,
         );
-        $paragraph = ParagraphWidget::fromText(Text::fromLines(...$lines));
+        $paragraph = ParagraphWidget::fromText(Text::fromLines(...$lines))
+            ->style(Style::default()->bg($theme->shellOutputBg));
         $paragraph->scroll = [$dlg->scroll, 0];
 
         $body = GridWidget::default()
@@ -75,13 +76,13 @@ final class ShellDialogRenderer
                     '↑↓' => 'Scrollen',
                     'PgUp/PgDn' => 'Seite',
                     'Esc' => 'Schließen',
-                ]))),
+                ], $theme))),
             );
 
         $borderColor = match ($dlg->exitCode) {
-            0 => AnsiColor::Green,
-            null => AnsiColor::Yellow,
-            default => AnsiColor::Red,
+            0 => $theme->dialogSuccessBorder,
+            null => $theme->dialogWarningBorder,
+            default => $theme->dialogErrorBorder,
         };
 
         $block = BlockWidget::default()

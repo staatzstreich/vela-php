@@ -148,3 +148,19 @@ used to trigger one full redraw per character); and a new Composer patch
 output into one `write()` call per frame instead of one per queued action (cursor move,
 color change, etc. — a full repaint can queue thousands of these). See `patches/README.md`
 for the measurements behind this.
+
+Milestone 7 done: the theme system from `ui/theme.rs`. `Vela\Theme\Theme` carries the same
+~50 named color fields; `ThemeChoice` resolves Auto (via `COLORFGBG`) / Dark / Light /
+Custom; `ThemeStore` persists the choice to `~/.config/vela/settings.toml` and loads custom
+themes from `~/.config/vela/themes/*.toml` — **using the same snake_case TOML keys the Rust
+version writes**, so theme files and the settings file are shared between both
+implementations (verified read-only against the real Rust-written `dark.toml`,
+`catppuccin-latte.toml`, and `settings.toml` on this machine). Template files
+(dark/light/custom) are seeded on first start, never overwritten. `Ctrl+T` cycles
+Auto → Dark → Light → each custom theme → Auto and persists the choice; `Ctrl+U`/`Ctrl+S`
+swap the panels visually (data model unchanged), both from any mode — same as `main.rs`.
+Every renderer (panels, transfer bar, hint area, all 9 dialogs) now takes its colors from
+the resolved theme instead of hard-coded values. Verified: 28 dark+light DummyBackend
+renders of every dialog state, cycle-order unit tests incl. custom themes, TOML round-trip
+tests, real-file interop checks, and a live pty session confirming Ctrl+T cycling +
+persistence.
