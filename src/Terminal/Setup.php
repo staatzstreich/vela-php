@@ -26,4 +26,11 @@ final class Setup
         $terminal->execute(Actions::cursorShow(), Actions::alternateScreenDisable());
         $terminal->disableRawMode();
     }
+
+    /** Re-enter the TUI on an existing terminal after a restore() (editor handoff). */
+    public static function resume(TermTerminal $terminal): void
+    {
+        $terminal->enableRawMode();
+        $terminal->execute(Actions::cursorHide(), Actions::alternateScreenEnable());
+    }
 }

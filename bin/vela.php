@@ -84,6 +84,51 @@ function promptPasswordHidden(string $prompt): string
 }
 
 /**
+ * Find an editor binary that is actually installed: $EDITOR, $VISUAL, then
+ * vim/nano/vi, each verified with `command -v` (mirrors main.rs find_editor;
+ * the value may carry flags like "code --wait", so only the first token is
+ * checked for existence).
+ */
+function findEditor(): ?string
+{
+    $candidates = array_filter([
+        getenv('EDITOR') ?: null,
+        getenv('VISUAL') ?: null,
+        'vim',
+        'nano',
+        'vi',
+    ], static fn (?string $c): bool => $c !== null && trim($c) !== '');
+
+    foreach ($candidates as $candidate) {
+        $binary = explode(' ', trim($candidate))[0];
+        $found = shell_exec('command -v ' . escapeshellarg($binary) . ' 2>/dev/null');
+        if (is_string($found) && trim($found) !== '') {
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Suspend the TUI, run the editor on the file, restore the TUI. The editor
+ * exit code is ignored — finishEdit()'s mtime comparison decides whether
+ * anything was saved. Mirrors main.rs launch_editor().
+ */
+function launchEditor(TermTerminal $terminal, \PhpTui\Tui\Display\Display $display, string $path): void
+{
+    $editor = findEditor();
+    if ($editor === null) {
+        return;
+    }
+
+    Setup::restore($terminal);
+    system($editor . ' ' . escapeshellarg($path));
+    Setup::resume($terminal);
+    $display->clear();
+}
+
+/**
  * Transfers run synchronously (no portable PHP threading — see
  * Vela\Transfer\TransferEngine's docblock), so this is what keeps the UI
  * from looking frozen: called between chunks, it redraws the progress bar
@@ -138,6 +183,16 @@ function run(TermTerminal $terminal, ?SftpConnection $sftp): void
             }
             $event = $terminal->events()->next();
         } while ($event !== null && $app->running);
+
+        // F4: editor handoff — suspend the TUI, run $EDITOR, restore, then
+        // let finishEdit() decide whether a re-upload is needed (mirrors
+        // the pending_edit block in main.rs's run()).
+        if ($app->pendingEdit !== null) {
+            $req = $app->pendingEdit;
+            $app->pendingEdit = null;
+            launchEditor($terminal, $display, $req->editPath);
+            $app->finishEdit($req);
+        }
     }
 }
 

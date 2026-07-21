@@ -37,6 +37,12 @@ final class SftpConnection
         public readonly string $host,
         public readonly string $user,
         public readonly Profile $profile,
+        /**
+         * Kept so a fresh session can be opened later without re-prompting
+         * (background-style transfers, post-edit re-upload). Rust wraps
+         * this in Zeroizing<String>; PHP has no equivalent memory scrubbing.
+         */
+        public readonly ?string $savedPassword,
     ) {
     }
 
@@ -52,7 +58,19 @@ final class SftpConnection
             throw new SftpException('Could not resolve remote home directory');
         }
 
-        return new self($sftp, $home, $home, $profile->host, $profile->user, $profile);
+        return new self($sftp, $home, $home, $profile->host, $profile->user, $profile, $password);
+    }
+
+    /**
+     * Open a fresh session and upload one file to an explicit remote path.
+     * Used by the F4 edit flow, where the existing session may have timed
+     * out while the editor was open — mirrors upload_file_fresh().
+     */
+    public function uploadFileFresh(string $localPath, string $remotePath): void
+    {
+        $fresh = self::connect($this->profile, $this->savedPassword);
+        $fresh->putFile($localPath, $remotePath, static function (): void {
+        });
     }
 
     /** List the current remote directory. Dirs first, then files, alphabetically. */

@@ -36,6 +36,7 @@ final class ProfileDialogRenderer
         NewProfileForm::KEY_PATH => 'Key-Datei',
         NewProfileForm::REMOTE_PATH => 'Remote-Pfad (optional)',
         NewProfileForm::LOCAL_PATH => 'Lokaler Startpfad (optional)',
+        NewProfileForm::PASSWORD => 'Passwort',
     ];
 
     public static function build(ProfileDialog $dlg, Theme $theme): Widget
@@ -115,9 +116,11 @@ final class ProfileDialogRenderer
         $constraints = [];
         foreach ($visibleFields as $field) {
             $constraints[] = Constraint::length(3);
-            $rowWidgets[] = $field === NewProfileForm::AUTH
-                ? self::buildAuthToggleRow($form, $dlg->field === $field, $theme)
-                : self::buildTextFieldRow($form, $field, $dlg->field === $field, $theme);
+            $rowWidgets[] = match ($field) {
+                NewProfileForm::AUTH => self::buildAuthToggleRow($form, $dlg->field === $field, $theme),
+                NewProfileForm::SAVE_PASSWORD => self::buildSavePasswordToggleRow($form, $dlg->field === $field, $theme),
+                default => self::buildTextFieldRow($form, $field, $dlg->field === $field, $theme),
+            };
         }
         $constraints[] = Constraint::min(0);
         $rowWidgets[] = ParagraphWidget::fromText(Text::fromString(''));
@@ -145,6 +148,9 @@ final class ProfileDialogRenderer
     private static function buildTextFieldRow(NewProfileForm $form, int $field, bool $isActive, Theme $theme): Widget
     {
         $value = $form->fieldValue($field) ?? '';
+        if ($field === NewProfileForm::PASSWORD) {
+            $value = str_repeat('●', mb_strlen($value));
+        }
         $valueStyle = $isActive
             ? Style::default()->fg($theme->textActive)->addModifier(Modifier::BOLD)
             : Style::default()->fg($theme->textInactive);
@@ -181,6 +187,30 @@ final class ProfileDialogRenderer
         return BlockWidget::default()
             ->borders(Borders::ALL)
             ->titles(Title::fromString(' Auth '))
+            ->borderStyle(Style::default()->fg($isActive ? $theme->dialogActiveBorder : $theme->dialogInactiveBorder))
+            ->widget(ParagraphWidget::fromText(Text::fromLine(Line::fromSpans(...$spans))));
+    }
+
+    private static function buildSavePasswordToggleRow(NewProfileForm $form, bool $isActive, Theme $theme): Widget
+    {
+        $yesStyle = $form->savePassword
+            ? Style::default()->fg($theme->toggleOn)->addModifier(Modifier::BOLD)
+            : Style::default()->fg($theme->toggleOff);
+        $noStyle = !$form->savePassword
+            ? Style::default()->fg($theme->toggleOn)->addModifier(Modifier::BOLD)
+            : Style::default()->fg($theme->toggleOff);
+
+        $spans = [
+            new Span('● Ja   ', $yesStyle),
+            new Span('● Nein', $noStyle),
+        ];
+        if ($isActive) {
+            $spans[] = new Span('  [Space]', Style::default()->fg($theme->textMuted));
+        }
+
+        return BlockWidget::default()
+            ->borders(Borders::ALL)
+            ->titles(Title::fromString(' Passwort im Keychain speichern '))
             ->borderStyle(Style::default()->fg($isActive ? $theme->dialogActiveBorder : $theme->dialogInactiveBorder))
             ->widget(ParagraphWidget::fromText(Text::fromLine(Line::fromSpans(...$spans))));
     }

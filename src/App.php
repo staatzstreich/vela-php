@@ -16,7 +16,9 @@ use Vela\Config\ProfileStore;
 use Vela\Config\UnsafePermissionsException;
 use Vela\Connection\SftpConnection;
 use Vela\Connection\UnknownHostKeyException;
+use Vela\Config\Keychain;
 use Vela\Dialog\DeleteDialog;
+use Vela\Dialog\EditRequest;
 use Vela\Dialog\HostKeyDialog;
 use Vela\Dialog\MkdirDialog;
 use Vela\Dialog\NewProfileForm;
@@ -39,12 +41,6 @@ use Vela\Theme\ThemeStore;
  * Central app state and key dispatch. Mirrors vela's src/app.rs App struct
  * plus main.rs's handle_events() dialog-priority chain, folded into one
  * handleKey() entry point instead of a free function taking &mut App.
- *
- * Keychain integration (src/config/profiles.rs's save_password/
- * load_password/delete_password) is milestone 8, not this one — so the
- * profile form has no save-password field, saved profiles never carry a
- * remembered password, and password-auth profiles always show the
- * password dialog on connect.
  */
 final class App
 {
@@ -86,6 +82,9 @@ final class App
 
     /** Purely visual — which physical side shows the local vs. remote panel. The data model is unchanged. */
     public bool $panelsSwapped = false;
+
+    /** Set by F4; the main loop takes it, suspends the TUI, runs $EDITOR, then calls finishEdit(). */
+    public ?EditRequest $pendingEdit = null;
 
     public function __construct(string $leftPath, string $rightPath)
     {
@@ -235,11 +234,13 @@ final class App
         match ($event->number) {
             2 => $this->openRenameDialog(),
             3 => $this->disconnectSftp(),
+            4 => $this->prepareEdit(),
             5 => $this->uploadActive($onTransferTick),
             6 => $this->downloadActive($onTransferTick),
             7 => $this->openMkdirDialog(),
             8 => $this->openDeleteDialog(),
             9 => $this->openProfileDialog(),
+            10 => $this->quit(),
             default => null,
         };
     }
@@ -351,6 +352,96 @@ final class App
             $this->tryRun(fn () => $this->left->loadLocal());
         } else {
             $this->statusMessage = 'Download fehlgeschlagen: ' . ($progress->errorMessage ?? 'unbekannter Fehler');
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // Edit (F4)
+    // -------------------------------------------------------------------
+
+    /**
+     * Prepare an editor launch for the selected file. Local files are opened
+     * in place; remote files are downloaded synchronously to a temp dir
+     * first, recording the mtime so finishEdit() can tell whether the
+     * editor saved anything. The main loop performs the actual terminal
+     * suspend and process spawn — same split as Rust's prepare_edit().
+     */
+    private function prepareEdit(): void
+    {
+        $panel = $this->activePanel();
+        $entry = $panel->entries[$panel->selected] ?? null;
+        if ($entry === null || $entry->isDir || $entry->name === '..') {
+            $this->statusMessage = 'Kein bearbeitbarer Eintrag ausgewählt';
+
+            return;
+        }
+
+        if ($this->active === ActivePanel::Left) {
+            $this->pendingEdit = EditRequest::local(self::joinLocal($this->left->path, $entry->name));
+
+            return;
+        }
+
+        if ($this->sftp === null) {
+            return;
+        }
+
+        $remotePath = $this->sftp->joinRemotePath($this->right->path, $entry->name);
+        $tempDir = sys_get_temp_dir() . '/vela-edit-' . bin2hex(random_bytes(6));
+        if (!mkdir($tempDir, 0700)) {
+            $this->statusMessage = 'Temp-Verzeichnis konnte nicht erstellt werden';
+
+            return;
+        }
+
+        $tempPath = $tempDir . '/' . $entry->name;
+        try {
+            $this->sftp->getFile($remotePath, $tempPath, static function (): void {
+            });
+        } catch (Throwable $e) {
+            $this->statusMessage = 'Download für Bearbeitung fehlgeschlagen: ' . $e->getMessage();
+            @unlink($tempPath);
+            @rmdir($tempDir);
+
+            return;
+        }
+
+        $mtime = @filemtime($tempPath) ?: 0;
+        $this->pendingEdit = EditRequest::remote($tempPath, $remotePath, $mtime, $tempDir);
+    }
+
+    /**
+     * Called by the main loop after the editor process has exited. Local:
+     * just reload. Remote: mtime comparison decides whether to re-upload —
+     * over a fresh session, since the existing one may have timed out while
+     * the editor was open. Mirrors finish_edit().
+     */
+    public function finishEdit(EditRequest $req): void
+    {
+        if (!$req->isRemote()) {
+            $this->tryRun(fn () => $this->left->loadLocal());
+            $this->statusMessage = 'Editor geschlossen';
+
+            return;
+        }
+
+        $changed = (@filemtime($req->editPath) ?: 0) > $req->mtimeBefore;
+
+        if ($changed && $this->sftp !== null) {
+            try {
+                $this->sftp->uploadFileFresh($req->editPath, (string) $req->remotePath);
+                $this->statusMessage = "'" . basename((string) $req->remotePath) . "' hochgeladen";
+            } catch (Throwable $e) {
+                $this->statusMessage = 'Upload fehlgeschlagen: ' . $e->getMessage();
+            }
+            $this->tryRun(fn () => $this->setRemoteListing($this->sftp->listDir()));
+        } elseif (!$changed) {
+            $this->statusMessage = 'Keine Änderungen, kein Upload';
+        }
+
+        @unlink($req->editPath);
+        if ($req->tempDir !== null) {
+            @rmdir($req->tempDir);
         }
     }
 
@@ -711,6 +802,14 @@ final class App
             return;
         }
 
+        if ($dlg->field === NewProfileForm::SAVE_PASSWORD) {
+            if ($event->char === ' ') {
+                $form->savePassword = !$form->savePassword;
+            }
+
+            return;
+        }
+
         if ($dlg->field === NewProfileForm::PORT && !ctype_digit($event->char)) {
             return;
         }
@@ -721,7 +820,7 @@ final class App
 
     private function profileFieldBackspace(NewProfileForm $form, int $field): void
     {
-        if ($field === NewProfileForm::AUTH) {
+        if ($field === NewProfileForm::AUTH || $field === NewProfileForm::SAVE_PASSWORD) {
             return;
         }
         $current = $form->fieldValue($field) ?? '';
@@ -739,8 +838,11 @@ final class App
 
             return;
         }
+
+        [$profile, $keychainNote] = $this->applyKeychainSave($profile, $dlg->form, originalHadSaved: false);
+
         $dlg->store->add($profile);
-        $this->persistProfileStore($dlg->store, "Profil '{$profile->name}' gespeichert");
+        $this->persistProfileStore($dlg->store, "Profil '{$profile->name}' gespeichert{$keychainNote}");
         $dlg->mode = ProfileDialogMode::ListMode;
     }
 
@@ -756,9 +858,61 @@ final class App
 
             return;
         }
+
+        $originalHadSaved = isset($dlg->store->profiles[$index]) && $dlg->store->profiles[$index]->hasSavedPassword;
+        [$profile, $keychainNote] = $this->applyKeychainSave($profile, $dlg->form, $originalHadSaved);
+
         $dlg->store->update($index, $profile);
-        $this->persistProfileStore($dlg->store, "Profil '{$profile->name}' aktualisiert");
+        $this->persistProfileStore($dlg->store, "Profil '{$profile->name}' aktualisiert{$keychainNote}");
         $dlg->mode = ProfileDialogMode::ListMode;
+    }
+
+    /**
+     * Keychain side of a profile save, mirroring save_new_profile()/
+     * save_edited_profile(): store the typed password when the toggle is on,
+     * delete the entry when it was turned off, keep the existing entry
+     * untouched when the toggle stays on but no new password was typed.
+     *
+     * @return array{Profile,string} the profile with its real hasSavedPassword, plus a status suffix
+     */
+    private function applyKeychainSave(Profile $profile, NewProfileForm $form, bool $originalHadSaved): array
+    {
+        $wantsSave = $form->savePassword && $form->password !== '';
+        $wantsDelete = !$form->savePassword;
+
+        if ($wantsSave) {
+            try {
+                Keychain::savePassword($profile->name, $form->password);
+
+                return [self::withSavedPassword($profile, true), ' — Passwort im Keychain gespeichert'];
+            } catch (Throwable $e) {
+                return [self::withSavedPassword($profile, false), ' — Keychain-Fehler: ' . $e->getMessage()];
+            }
+        }
+
+        if ($wantsDelete) {
+            Keychain::deletePassword($profile->name);
+
+            return [self::withSavedPassword($profile, false), ''];
+        }
+
+        // Toggle on, but no new password typed: leave the keychain alone.
+        return [self::withSavedPassword($profile, $originalHadSaved), ''];
+    }
+
+    private static function withSavedPassword(Profile $p, bool $hasSavedPassword): Profile
+    {
+        return new Profile(
+            name: $p->name,
+            host: $p->host,
+            port: $p->port,
+            user: $p->user,
+            auth: $p->auth,
+            keyPath: $p->keyPath,
+            remotePath: $p->remotePath,
+            localStartPath: $p->localStartPath,
+            hasSavedPassword: $hasSavedPassword,
+        );
     }
 
     private function persistProfileStore(ProfileStore $store, string $successMessage): void
@@ -780,6 +934,10 @@ final class App
             || ($event instanceof CodedKeyEvent && $event->code === KeyCode::Esc);
 
         if ($confirm && $dlg->deleteIndex !== null) {
+            if (isset($dlg->store->profiles[$dlg->deleteIndex])) {
+                // Best-effort, mirrors delete_password() being ignored in Rust.
+                Keychain::deletePassword($dlg->store->profiles[$dlg->deleteIndex]->name);
+            }
             $dlg->store->remove($dlg->deleteIndex);
             $dlg->listSelected = min($dlg->listSelected, max(count($dlg->store->profiles) - 1, 0));
             $this->persistProfileStore($dlg->store, 'Profil gelöscht');
@@ -796,6 +954,16 @@ final class App
     private function beginConnect(Profile $profile): void
     {
         if ($profile->auth === AuthMethod::Password) {
+            // Saved-password fast path (mirrors begin_connect): only prompt
+            // when the keychain has nothing for this profile.
+            if ($profile->hasSavedPassword) {
+                $saved = Keychain::loadPassword($profile->name);
+                if ($saved !== null) {
+                    $this->doConnect($profile, $saved);
+
+                    return;
+                }
+            }
             $this->passwordDialog = new PasswordDialog($profile);
 
             return;

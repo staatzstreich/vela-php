@@ -33,6 +33,7 @@ final class HelpDialogRenderer
         ['*', 'Alle markieren/entmarkieren'],
         ['F2', 'Umbenennen'],
         ['F3', 'Trennen'],
+        ['F4', 'Im Editor bearbeiten'],
         ['F5', 'Hochladen'],
         ['F6', 'Herunterladen'],
         ['F7', 'Verzeichnis erstellen'],

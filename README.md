@@ -164,3 +164,30 @@ the resolved theme instead of hard-coded values. Verified: 28 dark+light DummyBa
 renders of every dialog state, cycle-order unit tests incl. custom themes, TOML round-trip
 tests, real-file interop checks, and a live pty session confirming Ctrl+T cycling +
 persistence.
+
+Milestone 8 done: the remaining parity features.
+
+- **F4 — edit in `$EDITOR`** (`prepare_edit`/`launch_editor`/`finish_edit` from `main.rs` +
+  `app.rs`): local files open in place; remote files are downloaded to a temp dir first.
+  The TUI suspends (leave alt screen, disable raw mode), the editor runs (`$EDITOR` →
+  `$VISUAL` → vim → nano → vi, each verified with `command -v`), then the TUI resumes.
+  For remote files an mtime comparison decides whether to re-upload — over a **fresh**
+  SFTP session, since the old one may have timed out while the editor was open. The temp
+  dir is deleted afterwards (Rust gets this from `TempDir` RAII; here it's done by hand).
+- **OS-keychain integration** (`Vela\Config\Keychain`): service name `vela`, account =
+  profile name — same scheme as the Rust `keyring` crate, so passwords saved by either
+  implementation are readable by the other. Shells out to macOS `security` (or Linux
+  `secret-tool`) since PHP has no native keychain binding; note that
+  `security add-generic-password` briefly exposes the password in the process list, a
+  prototype-grade tradeoff documented in the class. The profile form gained the
+  save-password toggle and masked password field (same visibility rules as Rust:
+  password-auth only, field only when the toggle is on), profile save/edit/delete manage
+  the keychain entry, and connect uses the saved password automatically instead of
+  prompting (`begin_connect`'s fast path).
+- **F10** now also quits, matching `handle_main_key`.
+
+Verified: real macOS-keychain round trip (save/load/overwrite/delete/double-delete) with a
+throwaway account name; form-visibility and tab-cycle unit tests for the two new fields;
+finishEdit mtime/cleanup logic against real temp files; masked rendering (plaintext never
+appears in the frame buffer); and a live pty session pressing F4 with `EDITOR=true`
+confirming the suspend/resume handoff end to end.

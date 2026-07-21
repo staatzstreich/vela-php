@@ -7,13 +7,7 @@ namespace Vela\Dialog;
 use Vela\Config\AuthMethod;
 use Vela\Config\Profile;
 
-/**
- * Mirrors vela's src/app.rs NewProfileForm, minus the save_password/password
- * fields — those need OS-keychain access, which is milestone 8, not this
- * one. Saved profiles from this form always have hasSavedPassword=false;
- * password-auth profiles fall back to the password dialog every connect
- * until keychain integration lands.
- */
+/** Mirrors vela's src/app.rs NewProfileForm, including its 10-field map and visibility rules. */
 final class NewProfileForm
 {
     public const NAME = 0;
@@ -24,7 +18,9 @@ final class NewProfileForm
     public const KEY_PATH = 5;
     public const REMOTE_PATH = 6;
     public const LOCAL_PATH = 7;
-    public const FIELD_COUNT = 8;
+    public const SAVE_PASSWORD = 8;
+    public const PASSWORD = 9;
+    public const FIELD_COUNT = 10;
 
     public string $name = '';
 
@@ -42,6 +38,12 @@ final class NewProfileForm
 
     public string $localStartPath = '';
 
+    /** Whether the user wants the password stored in the OS keychain. */
+    public bool $savePassword = false;
+
+    /** Password text entered for keychain storage — never persisted to TOML. */
+    public string $password = '';
+
     public static function fromProfile(Profile $p): self
     {
         $form = new self();
@@ -53,6 +55,8 @@ final class NewProfileForm
         $form->keyPath = $p->keyPath ?? '~/.ssh/id_rsa';
         $form->remotePath = $p->remotePath ?? '';
         $form->localStartPath = $p->localStartPath ?? '';
+        $form->savePassword = $p->hasSavedPassword;
+        $form->password = '';
 
         return $form;
     }
@@ -67,6 +71,7 @@ final class NewProfileForm
             self::KEY_PATH => $this->keyPath,
             self::REMOTE_PATH => $this->remotePath,
             self::LOCAL_PATH => $this->localStartPath,
+            self::PASSWORD => $this->password,
             default => null,
         };
     }
@@ -81,14 +86,22 @@ final class NewProfileForm
             self::KEY_PATH => $this->keyPath = $value,
             self::REMOTE_PATH => $this->remotePath = $value,
             self::LOCAL_PATH => $this->localStartPath = $value,
+            self::PASSWORD => $this->password = $value,
             default => null,
         };
     }
 
+    /**
+     * Same visibility rules as the Rust form: key path only for key auth,
+     * save-password toggle only for password auth, password field only when
+     * that toggle is on.
+     */
     public function isFieldVisible(int $field): bool
     {
         return match ($field) {
             self::KEY_PATH => $this->auth === AuthMethod::Key,
+            self::SAVE_PASSWORD => $this->auth === AuthMethod::Password,
+            self::PASSWORD => $this->auth === AuthMethod::Password && $this->savePassword,
             default => true,
         };
     }
@@ -119,6 +132,10 @@ final class NewProfileForm
         return $current;
     }
 
+    /**
+     * hasSavedPassword is a placeholder here (mirrors Rust): the caller
+     * overrides it with the actual keychain-save result.
+     */
     public function toProfile(): ?Profile
     {
         $port = filter_var(trim($this->port), FILTER_VALIDATE_INT);
@@ -146,7 +163,7 @@ final class NewProfileForm
             keyPath: $keyPath !== '' ? $keyPath : null,
             remotePath: $remotePath !== '' ? $remotePath : null,
             localStartPath: $localStartPath !== '' ? $localStartPath : null,
-            hasSavedPassword: false,
+            hasSavedPassword: $this->savePassword,
         );
     }
 }
