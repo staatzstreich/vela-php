@@ -12,8 +12,10 @@ use Vela\Fs\FileEntry;
 
 /**
  * An active SFTP session. Mirrors vela's src/connection/sftp.rs
- * SftpConnection, scoped to connect + browse for this milestone —
- * rename/mkdir/delete/upload/download/tail follow in later milestones.
+ * SftpConnection: connect + browse plus the low-level primitives
+ * Vela\Transfer\TransferEngine needs (put/get/mkdir/stat/listing a
+ * directory's raw children). Rename/mkdir-dialog/delete/tail are still
+ * later milestones — those need the dialog system, not new SFTP plumbing.
  */
 final class SftpConnection
 {
@@ -107,6 +109,79 @@ final class SftpConnection
         $this->remotePath = self::parentOf($this->remotePath);
 
         return $this->listDir();
+    }
+
+    /** Null means stat failed (path doesn't exist / no permission). */
+    public function isRemoteDir(string $path): ?bool
+    {
+        $stat = $this->sftp->stat($path);
+        if ($stat === false) {
+            return null;
+        }
+
+        return ($stat['type'] ?? null) === self::TYPE_DIRECTORY;
+    }
+
+    /** Null means stat failed, or the server didn't report a size. */
+    public function remoteFileSize(string $path): ?int
+    {
+        $stat = $this->sftp->stat($path);
+        if ($stat === false || !isset($stat['size'])) {
+            return null;
+        }
+
+        return (int) $stat['size'];
+    }
+
+    /** @return array<string,bool> child name => isDir, excluding "." and ".." */
+    public function childNames(string $path): array
+    {
+        $raw = $this->sftp->rawlist($path);
+        if ($raw === false) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($raw as $name => $stat) {
+            if ($name === '.' || $name === '..') {
+                continue;
+            }
+            $out[$name] = ($stat['type'] ?? null) === self::TYPE_DIRECTORY;
+        }
+
+        return $out;
+    }
+
+    /** No-op if the directory already exists (mirrors the Rust side's tolerant mkdir). */
+    public function mkdirRemote(string $path): void
+    {
+        if ($this->isRemoteDir($path) === true) {
+            return;
+        }
+        $this->sftp->mkdir($path, 0o755);
+    }
+
+    /** @param callable(int):void $progressCallback receives cumulative bytes sent so far */
+    public function putFile(string $localPath, string $remotePath, callable $progressCallback): void
+    {
+        $ok = $this->sftp->put($remotePath, $localPath, SFTP::SOURCE_LOCAL_FILE, -1, -1, $progressCallback);
+        if ($ok === false) {
+            throw new SftpException("Upload failed: {$remotePath}");
+        }
+    }
+
+    /** @param callable(int):void $progressCallback receives cumulative bytes received so far */
+    public function getFile(string $remotePath, string $localPath, callable $progressCallback): void
+    {
+        $ok = $this->sftp->get($remotePath, $localPath, 0, -1, $progressCallback);
+        if ($ok === false) {
+            throw new SftpException("Download failed: {$remotePath}");
+        }
+    }
+
+    public function joinRemotePath(string $base, string $name): string
+    {
+        return self::joinPath($base, $name);
     }
 
     private static function fileEntryFromStat(string $name, array $stat): FileEntry

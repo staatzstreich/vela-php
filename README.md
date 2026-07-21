@@ -61,3 +61,25 @@ input arrives). See `patches/README.md` for the full root-cause writeup and
 `patches/php-tui-term-event-parser-more-flag.patch` for the fix; applied automatically via
 `cweagans/composer-patches` on `composer install`. Verified against the exact sequence that
 used to reproduce it, plus a regression check that milestone 1's nav/quit still works.
+
+Milestone 5 done: `Vela\Transfer\TransferEngine` ports `upload_batch()`/`download_batch()`
+from `connection/sftp.rs` — recursive directory upload/download with a live progress bar.
+Wired directly into `bin/vela.php` (no dialog needed, matching vela's own F5/F6 behavior):
+
+- `F5` uploads the left panel's marked entries (or the highlighted one if nothing's marked)
+  to the current remote directory.
+- `F6` downloads the right panel's marked/highlighted entries into the current local directory.
+
+Runs **synchronously** — there's no practical portable threading in PHP, so unlike Rust's
+background-thread + `Arc<Mutex<>>` model, the transfer blocks input until it finishes. A
+progress callback redraws the block-character progress bar (ported from
+`ui/statusbar.rs`'s hand-rolled `█`/`░` bar, throttled to ~20fps) so it doesn't look frozen
+meanwhile. `pcntl_fork` is the escalation path if that tradeoff proves annoying in practice.
+
+Verified without a live connection: `TransferBarRenderer` output via `DummyBackend`,
+recursive local file counting against a real scratch directory tree, and the
+marked/highlighted-entry selection logic (incl. that `..` is never included) via a
+reflection-based unit test. A regression pty check confirms the new two-row status area
+didn't break normal navigation. The actual network transfer (F5/F6 against a real server)
+needs a live SFTP session, which — like milestone 3 — needs manual testing in a real
+terminal.

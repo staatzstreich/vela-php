@@ -10,6 +10,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use PhpTui\Term\Event\CharKeyEvent;
 use PhpTui\Term\Event\CodedKeyEvent;
+use PhpTui\Term\Event\FunctionKeyEvent;
 use PhpTui\Term\KeyCode;
 use PhpTui\Term\Terminal as TermTerminal;
 use PhpTui\Tui\Bridge\PhpTerm\PhpTermBackend;
@@ -82,6 +83,26 @@ function promptPasswordHidden(string $prompt): string
     return $password === false ? '' : rtrim($password, "\n");
 }
 
+/**
+ * Transfers run synchronously (no portable PHP threading — see
+ * Vela\Transfer\TransferEngine's docblock), so this is what keeps the UI
+ * from looking frozen: called between chunks, it redraws the progress bar
+ * at most every 50ms rather than on every single chunk callback.
+ */
+function makeTransferTick(\PhpTui\Tui\Display\Display $display, App $app): callable
+{
+    $last = 0.0;
+
+    return function () use ($display, $app, &$last): void {
+        $now = microtime(true);
+        if ($now - $last < 0.05) {
+            return;
+        }
+        $last = $now;
+        $display->draw(Render::build($app, $display->viewportArea()));
+    };
+}
+
 function run(TermTerminal $terminal, ?SftpConnection $sftp): void
 {
     $backend = PhpTermBackend::new($terminal);
@@ -119,6 +140,12 @@ function run(TermTerminal $terminal, ?SftpConnection $sftp): void
                 KeyCode::Esc => $app->quit(),
                 default => null,
             };
+        } elseif ($event instanceof FunctionKeyEvent) {
+            if ($event->number === 5) {
+                $app->uploadActive(makeTransferTick($display, $app));
+            } elseif ($event->number === 6) {
+                $app->downloadActive(makeTransferTick($display, $app));
+            }
         } elseif ($event === null) {
             usleep(50_000);
         }

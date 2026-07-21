@@ -19,7 +19,7 @@ use Vela\App;
 
 /**
  * Top-level frame composition. Mirrors vela's src/ui/mod.rs render(),
- * minus dialogs/theming/transfer progress which come in later milestones.
+ * minus dialogs/theming which come in later milestones.
  */
 final class Render
 {
@@ -32,7 +32,7 @@ final class Render
         // ui/panels.rs.
         $rows = Layout::default()
             ->direction(Direction::Vertical)
-            ->constraints([Constraint::min(0), Constraint::length(1)])
+            ->constraints([Constraint::min(0), Constraint::length(2)])
             ->split($viewport);
 
         $cols = Layout::default()
@@ -53,21 +53,47 @@ final class Render
             ->constraints(Constraint::percentage(50), Constraint::percentage(50))
             ->widgets($leftBlock, $rightBlock);
 
-        $hint = ParagraphWidget::fromText(Text::fromString(self::hintLine($app)))
-            ->style(Style::default()->fg(AnsiColor::DarkGray));
+        $statusArea = $app->activeTransfer !== null
+            ? TransferBarRenderer::build(
+                $rows->get(1),
+                $app->activeTransfer,
+                $app->activeTransferVerb,
+                $app->activeTransferVerb === 'Download' ? AnsiColor::Magenta : AnsiColor::Green,
+            )
+            : self::buildHintArea($rows->get(1), $app);
 
         return GridWidget::default()
             ->direction(Direction::Vertical)
-            ->constraints(Constraint::min(0), Constraint::length(1))
-            ->widgets($panelsGrid, $hint);
+            ->constraints(Constraint::min(0), Constraint::length(2))
+            ->widgets($panelsGrid, $statusArea);
+    }
+
+    private static function buildHintArea(Area $area, App $app): Widget
+    {
+        $rows = Layout::default()
+            ->direction(Direction::Vertical)
+            ->constraints([Constraint::length(1), Constraint::length(1)])
+            ->split($area);
+
+        $hint = ParagraphWidget::fromText(Text::fromString(self::hintLine($app)))
+            ->style(Style::default()->fg(AnsiColor::DarkGray));
+        $status = ParagraphWidget::fromText(Text::fromString(
+            $app->statusMessage !== null ? ' ' . $app->statusMessage : ''
+        ))->style(Style::default()->fg(AnsiColor::Yellow));
+
+        return GridWidget::default()
+            ->direction(Direction::Vertical)
+            ->constraints(Constraint::length(1), Constraint::length(1))
+            ->widgets($hint, $status);
     }
 
     private static function hintLine(App $app): string
     {
-        if ($app->statusMessage !== null) {
-            return ' ' . $app->statusMessage;
-        }
+        $connected = $app->isConnected();
+        $upload = $connected ? ' | F5 hochladen' : '';
+        $download = $connected ? ' | F6 herunterladen' : '';
 
-        return ' Tab wechseln | ↑↓ bewegen | Enter öffnen | Backspace hoch | Leertaste markieren | * alle markieren | q beenden';
+        return ' Tab wechseln | ↑↓ bewegen | Enter öffnen | Backspace hoch | Leertaste markieren | * alle markieren'
+            . $upload . $download . ' | q beenden';
     }
 }
