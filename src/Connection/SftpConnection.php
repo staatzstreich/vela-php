@@ -41,7 +41,7 @@ final class SftpConnection
 
     public static function connect(Profile $profile, ?string $password = null): self
     {
-        $sftp = new SFTP($profile->host, $profile->port, 10);
+        $sftp = new SFTP(self::resolveIPv4Preferred($profile->host), $profile->port, 10);
 
         self::verifyHostKey($sftp, $profile->host, $profile->port);
         self::authenticate($sftp, $profile, $password);
@@ -241,6 +241,24 @@ final class SftpConnection
         }
         fwrite($fh, $entry);
         fclose($fh);
+    }
+
+    /**
+     * PHP's fsockopen() (which phpseclib uses internally) resolves a
+     * hostname once and doesn't fall back if that address is unreachable.
+     * Dual-stack DNS records commonly resolve IPv6 first (RFC 6724), so a
+     * host with a broken/unrouted AAAA record hangs until timeout even
+     * though IPv4 works fine — Rust's TcpStream::connect doesn't have this
+     * problem because it tries every resolved address in turn. We can't
+     * get that automatic fallback in PHP, so resolve to IPv4 explicitly
+     * (gethostbyname() is an A-record-only lookup) and connect to that.
+     */
+    private static function resolveIPv4Preferred(string $host): string
+    {
+        // Returns the original string unchanged if resolution fails (e.g.
+        // $host was already an IP literal, or has no A record) — safe to
+        // call unconditionally.
+        return gethostbyname($host);
     }
 
     private static function parentOf(string $path): string
