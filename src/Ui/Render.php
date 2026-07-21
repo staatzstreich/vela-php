@@ -6,6 +6,7 @@ namespace Vela\Ui;
 
 use PhpTui\Tui\Color\AnsiColor;
 use PhpTui\Tui\Display\Area;
+use PhpTui\Tui\Extension\Core\Widget\CompositeWidget;
 use PhpTui\Tui\Extension\Core\Widget\GridWidget;
 use PhpTui\Tui\Extension\Core\Widget\ParagraphWidget;
 use PhpTui\Tui\Layout\Constraint;
@@ -18,12 +19,51 @@ use Vela\ActivePanel;
 use Vela\App;
 
 /**
- * Top-level frame composition. Mirrors vela's src/ui/mod.rs render(),
- * minus dialogs/theming which come in later milestones.
+ * Top-level frame composition. Mirrors vela's src/ui/mod.rs render(): main
+ * frame, then each open dialog layered on top in the same fixed order Rust
+ * uses (which doubles as z-order — see App::handleKey()'s priority chain
+ * for why more than one can be open at once, e.g. password + host-key),
+ * with the help overlay always on top of everything.
  */
 final class Render
 {
     public static function build(App $app, Area $viewport): Widget
+    {
+        $frame = self::buildFrame($app, $viewport);
+
+        $layers = [$frame];
+        if ($app->profileDialog !== null) {
+            $layers[] = ProfileDialogRenderer::build($app->profileDialog);
+        }
+        if ($app->passwordDialog !== null) {
+            $layers[] = PasswordDialogRenderer::build($app->passwordDialog);
+        }
+        if ($app->renameDialog !== null) {
+            $layers[] = RenameDialogRenderer::build($app->renameDialog);
+        }
+        if ($app->mkdirDialog !== null) {
+            $layers[] = MkdirDialogRenderer::build($app->mkdirDialog);
+        }
+        if ($app->deleteDialog !== null) {
+            $layers[] = DeleteDialogRenderer::build($app->deleteDialog);
+        }
+        if ($app->shellDialog !== null) {
+            $layers[] = ShellDialogRenderer::build($app->shellDialog, $app->left->path);
+        }
+        if ($app->permissionDialog !== null) {
+            $layers[] = PermissionDialogRenderer::build($app->permissionDialog);
+        }
+        if ($app->hostKeyDialog !== null) {
+            $layers[] = HostKeyDialogRenderer::build($app->hostKeyDialog);
+        }
+        if ($app->helpVisible) {
+            $layers[] = HelpDialogRenderer::build();
+        }
+
+        return count($layers) === 1 ? $frame : CompositeWidget::fromWidgets(...$layers);
+    }
+
+    private static function buildFrame(App $app, Area $viewport): Widget
     {
         // Split eagerly (in addition to the GridWidget below, which does the
         // same solve again at render time) purely so panel content sizing

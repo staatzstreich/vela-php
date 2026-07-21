@@ -82,3 +82,59 @@ marked/highlighted-entry selection logic (incl. that `..` is never included) via
 reflection-based unit test. A regression pty check confirms the new two-row status area
 didn't break normal navigation. Confirmed working end to end against a real server: both
 F5 upload and F6 download tested live by hand.
+
+Milestone 6 done: the full dialog system from `ui/dialogs.rs` + `app.rs`'s dialog structs,
+plus `main.rs`'s modal-priority key-dispatch chain, now folded into one
+`Vela\App::handleKey()` entry point:
+
+- **Help** (`F1`, `Esc`/`q` to close) — static shortcut list.
+- **Rename** (`F2`) / **Mkdir** (`F7`) — `Vela\Ui\TextInput`-backed single-field dialogs.
+- **Delete** (`F8`) — confirms against marked entries (or the highlighted one), local
+  (recursive) or remote.
+- **Profile manager** (`F9` / `p`) — list/new/edit/delete profiles in `~/.config/vela/profiles.toml`,
+  finally replacing the `--profile=` CLI flag (still there for scripting convenience) as the
+  real way to connect. No save-password field on the form yet — that needs OS-keychain
+  access, still milestone 8, so password-auth profiles always prompt.
+- **Password** and **host-key-verification** dialogs — the connect flow
+  (`beginConnect`/`doConnect`) now lives entirely in-app: password prompt for
+  password-auth profiles, an accept/reject prompt (with fingerprint) for unrecognized
+  host keys, wired to the same `SftpConnection`/`known_hosts` code from milestone 3.
+- **Permission-fix** dialog — offered automatically at startup if `profiles.toml` isn't
+  mode 0600 (same check as milestone 2's `UnsafePermissionsException`, now with a UI
+  instead of just an error).
+- **Shell** (`!`) and **tail** (`t`) — run a local shell command (`proc_open`, cwd = left
+  panel) or tail the last 50 lines of a selected remote file, sharing one dialog for both
+  (input phase vs. output phase, like the Rust version).
+
+Dialogs render as an overlay via a new `Vela\Ui\CenteredBox` widget + `CenteredBoxRenderer`
+— php-tui has no `Clear` widget (ratatui's usual way to blank the area under a popup), but
+`BlockWidget` always builds a fresh blank sub-buffer for its contents and pastes the whole
+thing back, so a bordered dialog Block clears whatever was underneath it as a side effect.
+Verified directly with a synthetic "background full of X's" test before building on it.
+
+**On the php-tui/term Esc-reliability investigation**: chasing an intermittently "lost"
+Escape keypress across several dialogs turned into the biggest side-quest of this
+milestone. The short version — most of what looked like a parser bug was actually a
+**testing-harness artifact**: `expect` scripts using blocking `sleep` between keystrokes
+don't drain the pty continuously, and `AnsiPainter` writes its ANSI output with one
+unbuffered `fwrite()` per queued action (no batching) — under backpressure from a
+non-draining reader this can make a single `display->draw()` call block for anywhere from
+~250ms to 3+ seconds (measured), long enough for multiple real keystrokes to bunch into one
+read and occasionally hit a parser edge case. Switching test scripts to `expect -re`
+pattern-matching (which keeps the pty continuously drained, like a real terminal emulator
+always does) made the issue disappear entirely, and direct event-log instrumentation
+confirmed the app's own key-dispatch logic is correct. The one *confirmed* real upstream
+bug — the sticky-`$more` buffer issue fixed in milestone 4 — remains patched and valid,
+since byte-bunching can still legitimately happen in real usage (fast typing, network
+buffering over SSH, etc.), just far less dramatically than under a stalled test harness.
+As cheap extra insurance, the help dialog also accepts `q` (not just `Esc`) to close.
+
+Verified: `DummyBackend` renders of every dialog state (15 combinations, no exceptions);
+reflection-based direct tests of `confirmRename`/`confirmMkdir`/`confirmDelete` (incl.
+recursive directory deletion) and `runShellCommand` (real `proc_open`, correct cwd, stdout
+capture, exit codes) against real scratch files; a ground-truth event-log trace confirming
+the F1→close→quit sequence dispatches correctly; and `expect -re`-based interactive pty
+sessions for the profile dialog (open → new form → cancel → close) and rename dialog
+(open → cancel), all against a scratch `$HOME` so nothing real gets touched. Not yet tested
+live: the remote (SFTP) side of rename/mkdir/delete, and the password/host-key dialogs
+against a real server — same interactive-password constraint as milestones 3 and 5.

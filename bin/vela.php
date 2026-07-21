@@ -11,7 +11,6 @@ require __DIR__ . '/../vendor/autoload.php';
 use PhpTui\Term\Event\CharKeyEvent;
 use PhpTui\Term\Event\CodedKeyEvent;
 use PhpTui\Term\Event\FunctionKeyEvent;
-use PhpTui\Term\KeyCode;
 use PhpTui\Term\Terminal as TermTerminal;
 use PhpTui\Tui\Bridge\PhpTerm\PhpTermBackend;
 use PhpTui\Tui\DisplayBuilder;
@@ -20,6 +19,7 @@ use Vela\Config\AuthMethod;
 use Vela\Config\ProfileStore;
 use Vela\Connection\SftpConnection;
 use Vela\Terminal\Setup;
+use Vela\Ui\CenteredBoxRenderer;
 use Vela\Ui\Format;
 use Vela\Ui\Render;
 
@@ -106,7 +106,9 @@ function makeTransferTick(\PhpTui\Tui\Display\Display $display, App $app): calla
 function run(TermTerminal $terminal, ?SftpConnection $sftp): void
 {
     $backend = PhpTermBackend::new($terminal);
-    $display = DisplayBuilder::default($backend)->build();
+    $display = DisplayBuilder::default($backend)
+        ->addWidgetRenderer(new CenteredBoxRenderer())
+        ->build();
 
     $left = getcwd() ?: '/';
     $right = $_SERVER['HOME'] ?? (getenv('HOME') ?: $left);
@@ -121,31 +123,8 @@ function run(TermTerminal $terminal, ?SftpConnection $sftp): void
 
         $event = $terminal->events()->next();
 
-        if ($event instanceof CharKeyEvent) {
-            if ($event->char === 'q') {
-                $app->quit();
-            } elseif ($event->char === ' ') {
-                $app->activePanel()->toggleMark();
-                $app->activePanel()->moveDown();
-            } elseif ($event->char === '*') {
-                $app->activePanel()->markAll();
-            }
-        } elseif ($event instanceof CodedKeyEvent) {
-            match ($event->code) {
-                KeyCode::Tab => $app->togglePanel(),
-                KeyCode::Up => $app->activePanel()->moveUp(),
-                KeyCode::Down => $app->activePanel()->moveDown(),
-                KeyCode::Enter => $app->enterActive(),
-                KeyCode::Backspace => $app->goUpActive(),
-                KeyCode::Esc => $app->quit(),
-                default => null,
-            };
-        } elseif ($event instanceof FunctionKeyEvent) {
-            if ($event->number === 5) {
-                $app->uploadActive(makeTransferTick($display, $app));
-            } elseif ($event->number === 6) {
-                $app->downloadActive(makeTransferTick($display, $app));
-            }
+        if ($event instanceof CharKeyEvent || $event instanceof CodedKeyEvent || $event instanceof FunctionKeyEvent) {
+            $app->handleKey($event, makeTransferTick($display, $app));
         } elseif ($event === null) {
             usleep(50_000);
         }

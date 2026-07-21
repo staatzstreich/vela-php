@@ -12,10 +12,9 @@ use Vela\Fs\FileEntry;
 
 /**
  * An active SFTP session. Mirrors vela's src/connection/sftp.rs
- * SftpConnection: connect + browse plus the low-level primitives
- * Vela\Transfer\TransferEngine needs (put/get/mkdir/stat/listing a
- * directory's raw children). Rename/mkdir-dialog/delete/tail are still
- * later milestones — those need the dialog system, not new SFTP plumbing.
+ * SftpConnection: connect + browse, transfer primitives, and the
+ * rename/mkdir/delete/change_to_absolute operations the dialog system
+ * needs. tail_remote_file is still a later (polish) milestone.
  */
 final class SftpConnection
 {
@@ -109,6 +108,92 @@ final class SftpConnection
         $this->remotePath = self::parentOf($this->remotePath);
 
         return $this->listDir();
+    }
+
+    /**
+     * Switch to an absolute remote path and return the new listing.
+     * Expands a leading `~` to the login home directory resolved at
+     * connect time. Uses realpath to canonicalise (resolves symlinks,
+     * "..", etc.) and simultaneously verify the path exists.
+     */
+    public function changeToAbsolute(string $raw): array
+    {
+        $expanded = match (true) {
+            $raw === '~' => $this->home,
+            str_starts_with($raw, '~/') => $this->home . substr($raw, 1),
+            default => $raw,
+        };
+
+        $canonical = $this->sftp->realpath($expanded);
+        if ($canonical === false) {
+            throw new SftpException("Pfad nicht gefunden '{$expanded}'");
+        }
+
+        if ($this->isRemoteDir($canonical) !== true) {
+            throw new SftpException("'{$canonical}' ist kein Verzeichnis");
+        }
+
+        $this->remotePath = $canonical;
+
+        return $this->listDir();
+    }
+
+    /** Rename (or move) an entry in the current remote directory. */
+    public function renameEntry(string $oldName, string $newName): void
+    {
+        $old = self::joinPath($this->remotePath, $oldName);
+        $new = self::joinPath($this->remotePath, $newName);
+        if (!$this->sftp->rename($old, $new)) {
+            throw new SftpException("Rename failed: {$oldName} -> {$newName}");
+        }
+    }
+
+    /**
+     * Create a directory in the current remote directory. Unlike
+     * mkdirRemote() (used by the transfer engine, which tolerates an
+     * already-existing target directory), this raises on any failure —
+     * the mkdir dialog should surface "already exists" as an error.
+     */
+    public function createDirectory(string $name): void
+    {
+        $path = self::joinPath($this->remotePath, $name);
+        if (!$this->sftp->mkdir($path, 0o755)) {
+            throw new SftpException("mkdir failed: {$path}");
+        }
+    }
+
+    /** Delete a file in the current remote directory. */
+    public function deleteFile(string $name): void
+    {
+        $path = self::joinPath($this->remotePath, $name);
+        if (!$this->sftp->delete($path, false)) {
+            throw new SftpException("Delete failed: {$path}");
+        }
+    }
+
+    /** Recursively delete a directory and all its contents. */
+    public function deleteDirectory(string $name): void
+    {
+        $path = self::joinPath($this->remotePath, $name);
+        if (!$this->sftp->delete($path, true)) {
+            throw new SftpException("Delete failed: {$path}");
+        }
+    }
+
+    /** Read a remote text file and return its last $maxLines lines. */
+    public function tailRemoteFile(string $path, int $maxLines): array
+    {
+        $content = $this->sftp->get($path);
+        if ($content === false) {
+            throw new SftpException("Cannot read {$path}");
+        }
+
+        $lines = explode("\n", $content);
+        if ($lines !== [] && end($lines) === '') {
+            array_pop($lines);
+        }
+
+        return array_slice($lines, -$maxLines);
     }
 
     /** Null means stat failed (path doesn't exist / no permission). */
