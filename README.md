@@ -272,3 +272,21 @@ reproducible (byte-identical size, same minimal linkage, same passing tests).
 Not committed (17MB build artifact, platform-specific, regenerate with `bin/build-static.sh`)
 — ignored via `.gitignore` alongside room for future `x86_64`/`universal` variants if
 that's ever revisited.
+
+Testing (in progress) — PHPUnit is now set up as the first of three planned quality tools
+(PHPUnit → PHPStan → Rector, being introduced one at a time). Run with:
+
+```
+composer test
+```
+
+Starter set converts earlier ad-hoc scratch-script verification into checked-in tests:
+`tests/Theme/ThemeTest.php` (TOML round-trip, snake_case key interop with the Rust theme
+files), `tests/Ui/TextInputTest.php` (cursor logic incl. multi-byte/emoji edge cases via a
+`#[DataProvider]`), `tests/Config/ProfileStoreTest.php` (save/load round-trip, 0600
+permission enforcement, `$_SERVER['HOME']`-isolated via `setUp()`/`tearDown()` so it never
+touches a real `~/.config/vela/profiles.toml`), and `tests/Transfer/TransferEngineTest.php`
+(`countLocalFiles()` only — `uploadBatch`/`downloadBatch`/`countRemoteFiles` need a real
+`SftpConnection`, which is `final` with a private constructor, so they stay covered by live
+manual testing instead, same as everywhere else in this project). 35 tests, 58 assertions,
+all passing.
