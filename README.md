@@ -227,3 +227,48 @@ interactive behavior to running `bin/vela.php` directly from source. `vela.phar`
 isn't committed (build artifact, regenerate with `composer phar`); ignored via `.gitignore`.
 
 Milestone 9b (standalone static binary via `static-php-cli`) is next.
+
+Milestone 9b done: standalone static binary (arm64) via `static-php-cli` (spc). Build with:
+
+```
+bin/build-static.sh
+./vela-php-arm64 --profile="Lokal"
+```
+
+`bin/build-static.sh` downloads `spc` (static-php-cli's own prebuilt binary — its working
+directory defaults to `~/.local/share/vela-php-spc`, outside this repo, override with
+`SPC_HOME`; it's ~2GB of PHP source + build products, not something to keep inside a git
+checkout), runs `spc doctor --auto-fix` (installed `automake`/`cmake`/`bison` via Homebrew
+on this machine — standard reversible dev tooling, same category as the spike phase's
+`brew install php composer`), downloads PHP 8.5 + library sources for the extension set the
+app actually needs, compiles a fully static PHP with those extensions built in plus the
+`micro` SAPI (~3 minutes), rebuilds `vela.phar` fresh, then combines `micro.sfx` + the phar
+into one Mach-O binary — same idea as vela's own `vela-arm64` Rust binary.
+
+**Extension set** (`mbstring,ctype,openssl,gmp,sodium,phar,zlib,filter`) was derived by
+grepping our own code and the three production vendor packages for extension-specific
+function calls (`mb_*`/`ctype_*` are hard dependencies of php-tui and our own port; phpseclib
+conditionally uses `openssl_*`/`gmp_*`/`sodium_*`/`bcmath` depending on what's
+available — included openssl+gmp+sodium for speed and to cover modern ed25519 keys, skipped
+bcmath since gmp already covers the big-integer arithmetic; `phar`+`zlib` are needed because
+the phar payload itself is gzip-compressed and read through the phar stream wrapper at
+runtime). `spc`'s own `dump-extensions` auto-detector came up empty — it goes off declared
+`ext-*` entries in `composer.json`, which we don't have, rather than scanning code — so this
+list is derived by hand instead of tool-generated.
+
+Verified: `otool -L` shows only `libSystem`/`libresolv` (both always present on macOS — no
+PHP, Homebrew, or other runtime dependency); ran with `PATH=/usr/bin:/bin` (Homebrew, and
+therefore `php`/`composer`, unreachable) for the CLI-flag error path, a headless non-tty
+boot, and a full live pty cycle (render → help open/close → quit) — all identical to the
+PHAR/source behavior. A standalone functional check (via the uncombined `micro.sfx`, same
+build) round-tripped AES via `openssl_encrypt`/`decrypt`, verified big-integer arithmetic
+via `gmp_add`, and did an ed25519 sign/verify via `sodium_crypto_sign_*` — confirming the
+statically-linked crypto extensions aren't just present but actually produce correct
+output (caught and fixed one bug in the test itself along the way: a mistyped expected
+sum, not a build issue — cross-checked against Python's arbitrary-precision arithmetic).
+Re-ran the full `bin/build-static.sh` end to end a second time to confirm the build is
+reproducible (byte-identical size, same minimal linkage, same passing tests).
+
+Not committed (17MB build artifact, platform-specific, regenerate with `bin/build-static.sh`)
+— ignored via `.gitignore` alongside room for future `x86_64`/`universal` variants if
+that's ever revisited.

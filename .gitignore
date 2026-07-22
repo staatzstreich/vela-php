@@ -2,3 +2,6 @@
 .DS_Store
 /vela.phar
 /.box_dump/
+/vela-php-arm64
+/vela-php-x86_64
+/vela-php-universal
