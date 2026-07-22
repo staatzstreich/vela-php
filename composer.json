@@ -15,7 +15,11 @@
         }
     },
     "require-dev": {
-        "cweagans/composer-patches": "^1.7"
+        "cweagans/composer-patches": "^1.7",
+        "humbug/box": "^4.7"
+    },
+    "scripts": {
+        "phar": "box compile"
     },
     "config": {
         "allow-plugins": {

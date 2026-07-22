@@ -199,3 +199,31 @@ Disconnect` appears only while connected, with the danger-colored badge; row two
 status message. Colors all come from the theme (`hint_badge_*`, `hint_label`,
 `status_message`, `hint_bar_bg`). Verified via DummyBackend (badge presence, F3
 hidden/shown, status row) and a live pty session confirming the bar renders and F10 quits.
+
+Milestone 9a done: PHAR packaging via `humbug/box`. Build with:
+
+```
+composer install
+composer phar
+./vela.phar --profile="Lokal"
+```
+
+`box.json` uses Box's auto-discovery (no explicit `directories`/`finder` list) — it reads
+`composer.json`/`composer.lock` to find what to bundle and, via Composer's
+`dev-package-names` metadata, automatically excludes dev-only dependencies (`humbug/box`
+itself, `cweagans/composer-patches`) without needing a separate `composer install --no-dev`
+pass. Verified by inspecting `box compile --debug`'s file dump: only `bin/vela.php` (the
+declared entry point — `spike.php`/`textinput-demo.php` are not pulled in), `src/`, and the
+four production vendor packages end up in the 906KB, 769-file PHAR; the earlier
+`composer-patches` fixes are included as-is since they'd already been applied to the files
+on disk before packaging. `./vela.phar` runs directly (Box adds a `#!/usr/bin/env php`
+shebang + sets it executable) — no `php` prefix needed, same UX as the Rust binaries.
+
+Verified end to end: `php -l` on the built PHAR, the `--profile=` CLI error path, a
+headless (non-tty) boot showing the same graceful `stty` failure as the unpackaged version
+(confirms `phar://`-relative path resolution works correctly for `__DIR__`-based requires),
+and a full live pty cycle (render → F1 help → Esc close → q quit) — byte-identical
+interactive behavior to running `bin/vela.php` directly from source. `vela.phar` itself
+isn't committed (build artifact, regenerate with `composer phar`); ignored via `.gitignore`.
+
+Milestone 9b (standalone static binary via `static-php-cli`) is next.

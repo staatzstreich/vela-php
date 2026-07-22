@@ -1,0 +1,6 @@
+{
+    "main": "bin/vela.php",
+    "output": "vela.phar",
+    "compression": "GZ",
+    "banner": false
+}

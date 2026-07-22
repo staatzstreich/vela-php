@@ -1,2 +1,4 @@
 /vendor/
 .DS_Store
+/vela.phar
+/.box_dump/
