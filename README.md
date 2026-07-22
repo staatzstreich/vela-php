@@ -270,8 +270,33 @@ Re-ran the full `bin/build-static.sh` end to end a second time to confirm the bu
 reproducible (byte-identical size, same minimal linkage, same passing tests).
 
 Not committed (17MB build artifact, platform-specific, regenerate with `bin/build-static.sh`)
-— ignored via `.gitignore` alongside room for future `x86_64`/`universal` variants if
-that's ever revisited.
+— ignored via `.gitignore`.
+
+**Multi-platform support** added afterwards: `bin/build-static.sh` now auto-detects the host
+OS/architecture it's run *on* (`uname -s`/`uname -m`) and picks the matching `spc` download +
+output binary name — macOS arm64 → `vela-php-arm64` (unchanged), macOS x86_64 →
+`vela-php-x86_64`, Linux x86_64 → `vela-php-linux-x86_64`, Linux aarch64 →
+`vela-php-linux-aarch64`. The intent: anyone cloning this repo can build a native binary for
+their own machine by just running the script, rather than this project shipping prebuilt
+binaries for every platform.
+
+This deliberately does *not* attempt cross-compilation or an automated universal binary:
+static-php-cli's own docs say plainly it doesn't support either for macOS ("Currently we do
+not support universal and cross-compilation for macOS",
+[env-vars.html](https://static-php.dev/en/guide/env-vars.html)) — each architecture has to be
+built natively on that architecture. If you have both a macOS arm64 and x86_64 machine and
+want a `vela-universal` like vela's own, build on each with this script, then combine the two
+results yourself: `lipo -create vela-php-arm64 vela-php-x86_64 -output vela-php-universal`.
+
+Linux support is new and **not personally verified on real Linux hardware** (no Linux machine
+available while writing this — please open an issue/PR if you hit problems). It should work:
+per static-php-cli's own `config/env.ini`, Linux builds default to `SPC_LIBC=musl` — a fully
+static, distro-portable binary — and unlike a statically-linked glibc, musl's resolver doesn't
+have the NSS/`getaddrinfo` gotcha that glibc static linking is known for, so SFTP host
+resolution should work out of the box with no extra flags needed. Re-ran the full updated
+script end to end on this machine (macOS arm64) to confirm the refactor didn't regress the
+already-verified path: identical `vela-php-arm64` output, same minimal `libSystem`/`libresolv`
+linkage, same CLI-flag error-path behavior.
 
 Testing / quality tooling — PHPUnit is set up as the first of three planned quality tools
 (PHPUnit → PHPStan → Rector, being introduced one at a time). Run with:

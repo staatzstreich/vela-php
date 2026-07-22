@@ -5,4 +5,6 @@
 /vela-php-arm64
 /vela-php-x86_64
 /vela-php-universal
+/vela-php-linux-x86_64
+/vela-php-linux-aarch64
 /.phpunit.cache/
