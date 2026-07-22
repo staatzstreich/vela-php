@@ -36,7 +36,13 @@ final class PanelRenderer
         // php-tui doesn't clip overlong titles to the block's own width the
         // way ratatui does — an untruncated title can overwrite the
         // top-right corner. Truncate ourselves to the border line's width.
-        $title = Format::truncateName(" {$label} — {$panel->path} ", max(0, $area->width - 2));
+        // An empty path (the not-yet-connected remote panel, see App's
+        // constructor/disconnectSftp()) omits the "— path" segment entirely
+        // rather than showing a stale/misleading local path next to it.
+        $title = Format::truncateName(
+            $panel->path === '' ? " {$label} " : " {$label} — {$panel->path} ",
+            max(0, $area->width - 2),
+        );
 
         $block = BlockWidget::default()
             ->borders(Borders::ALL)

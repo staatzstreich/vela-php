@@ -91,8 +91,17 @@ final class App
     {
         $this->left = new PanelState($leftPath);
         $this->right = new PanelState($rightPath);
+        // Downgrade (for now): the right panel stays empty (no path, no
+        // listing) until an SFTP connection is established (attachSftp()/
+        // doConnect() populate both), rather than browsing $rightPath
+        // locally like the left panel does. F5/F6 (Upload/Download) only
+        // make sense with a remote side, and showing two local panels
+        // invited pressing them for nothing. Left commented out, not
+        // removed: local-to-local copy is a real planned feature (see
+        // conversation/README) that would want this back.
+        $this->right->path = '';
         $this->left->loadLocal();
-        $this->right->loadLocal();
+        // $this->right->loadLocal();
 
         ThemeStore::ensureThemes();
         $this->themeChoice = ThemeStore::loadThemeChoice();
@@ -1027,10 +1036,12 @@ final class App
             return;
         }
         $this->sftp = null;
-        $homeEnv = $_SERVER['HOME'] ?? getenv('HOME');
-        $home = is_string($homeEnv) && $homeEnv !== '' ? $homeEnv : (getcwd() ?: '/');
-        $this->right = new PanelState($home);
-        $this->tryRun(fn () => $this->right->loadLocal());
+        // Downgrade (for now): see the matching comment in __construct().
+        // $homeEnv = $_SERVER['HOME'] ?? getenv('HOME');
+        // $home = is_string($homeEnv) && $homeEnv !== '' ? $homeEnv : (getcwd() ?: '/');
+        // $this->right = new PanelState($home);
+        // $this->tryRun(fn () => $this->right->loadLocal());
+        $this->right = new PanelState('');
         $this->statusMessage = 'Getrennt';
     }
 
