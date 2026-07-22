@@ -181,21 +181,21 @@ final class App
         }
 
         if ($this->hostKeyDialog !== null) {
-            $this->handleHostKeyDialogKey($event);
+            $this->handleHostKeyDialogKey($event, $this->hostKeyDialog);
         } elseif ($this->permissionDialog !== null) {
-            $this->handlePermissionDialogKey($event);
+            $this->handlePermissionDialogKey($event, $this->permissionDialog);
         } elseif ($this->passwordDialog !== null) {
-            $this->handlePasswordDialogKey($event);
+            $this->handlePasswordDialogKey($event, $this->passwordDialog);
         } elseif ($this->deleteDialog !== null) {
-            $this->handleDeleteDialogKey($event);
+            $this->handleDeleteDialogKey($event, $this->deleteDialog);
         } elseif ($this->renameDialog !== null) {
-            $this->handleRenameDialogKey($event);
+            $this->handleRenameDialogKey($event, $this->renameDialog);
         } elseif ($this->mkdirDialog !== null) {
-            $this->handleMkdirDialogKey($event);
+            $this->handleMkdirDialogKey($event, $this->mkdirDialog);
         } elseif ($this->shellDialog !== null) {
-            $this->handleShellDialogKey($event);
+            $this->handleShellDialogKey($event, $this->shellDialog);
         } elseif ($this->profileDialog !== null) {
-            $this->handleProfileDialogKey($event);
+            $this->handleProfileDialogKey($event, $this->profileDialog);
         } else {
             $this->handleMainKey($event, $onTransferTick);
         }
@@ -254,12 +254,13 @@ final class App
     private function enterActive(): void
     {
         $this->tryRun(function (): void {
-            if ($this->active === ActivePanel::Right && $this->sftp !== null) {
+            $sftp = $this->sftp;
+            if ($this->active === ActivePanel::Right && $sftp !== null) {
                 $entry = $this->right->entries[$this->right->selected] ?? null;
                 if ($entry === null || !$entry->isDir) {
                     return;
                 }
-                $this->setRemoteListing($this->sftp->enterDir($entry->name));
+                $this->setRemoteListing($sftp, $sftp->enterDir($entry->name));
             } else {
                 $this->activePanel()->enterSelected();
             }
@@ -269,8 +270,9 @@ final class App
     private function goUpActive(): void
     {
         $this->tryRun(function (): void {
-            if ($this->active === ActivePanel::Right && $this->sftp !== null) {
-                $this->setRemoteListing($this->sftp->goUp());
+            $sftp = $this->sftp;
+            if ($this->active === ActivePanel::Right && $sftp !== null) {
+                $this->setRemoteListing($sftp, $sftp->goUp());
             } else {
                 $this->activePanel()->goUp();
             }
@@ -285,7 +287,8 @@ final class App
      */
     private function uploadActive(?callable $onTick = null): void
     {
-        if ($this->sftp === null) {
+        $sftp = $this->sftp;
+        if ($sftp === null) {
             return;
         }
         $entries = self::entriesToTransfer($this->left);
@@ -306,12 +309,12 @@ final class App
         $this->activeTransfer = $progress;
         $this->activeTransferVerb = 'Upload';
 
-        TransferEngine::uploadBatch($this->sftp, $entries, $localBase, $remoteDir, $progress, $onTick);
+        TransferEngine::uploadBatch($sftp, $entries, $localBase, $remoteDir, $progress, $onTick);
 
         $this->activeTransfer = null;
         if ($progress->state === TransferState::Done) {
             $this->statusMessage = 'Upload abgeschlossen';
-            $this->tryRun(fn () => $this->setRemoteListing($this->sftp->listDir()));
+            $this->tryRun(fn () => $this->setRemoteListing($sftp, $sftp->listDir()));
         } else {
             $this->statusMessage = 'Upload fehlgeschlagen: ' . ($progress->errorMessage ?? 'unbekannter Fehler');
         }
@@ -323,7 +326,8 @@ final class App
      */
     private function downloadActive(?callable $onTick = null): void
     {
-        if ($this->sftp === null) {
+        $sftp = $this->sftp;
+        if ($sftp === null) {
             return;
         }
         $entries = self::entriesToTransfer($this->right);
@@ -336,7 +340,7 @@ final class App
         $this->right->clearMarks();
 
         $totalFiles = max(1, array_sum(array_map(
-            fn (FileEntry $e): int => TransferEngine::countRemoteFiles($this->sftp, $this->sftp->joinRemotePath($remoteDir, $e->name)),
+            fn (FileEntry $e): int => TransferEngine::countRemoteFiles($sftp, $sftp->joinRemotePath($remoteDir, $e->name)),
             $entries,
         )));
 
@@ -344,7 +348,7 @@ final class App
         $this->activeTransfer = $progress;
         $this->activeTransferVerb = 'Download';
 
-        TransferEngine::downloadBatch($this->sftp, $entries, $remoteDir, $localDir, $progress, $onTick);
+        TransferEngine::downloadBatch($sftp, $entries, $remoteDir, $localDir, $progress, $onTick);
 
         $this->activeTransfer = null;
         if ($progress->state === TransferState::Done) {
@@ -426,15 +430,16 @@ final class App
         }
 
         $changed = (@filemtime($req->editPath) ?: 0) > $req->mtimeBefore;
+        $sftp = $this->sftp;
 
-        if ($changed && $this->sftp !== null) {
+        if ($changed && $sftp !== null) {
             try {
-                $this->sftp->uploadFileFresh($req->editPath, (string) $req->remotePath);
+                $sftp->uploadFileFresh($req->editPath, (string) $req->remotePath);
                 $this->statusMessage = "'" . basename((string) $req->remotePath) . "' hochgeladen";
             } catch (Throwable $e) {
                 $this->statusMessage = 'Upload fehlgeschlagen: ' . $e->getMessage();
             }
-            $this->tryRun(fn () => $this->setRemoteListing($this->sftp->listDir()));
+            $this->tryRun(fn () => $this->setRemoteListing($sftp, $sftp->listDir()));
         } elseif (!$changed) {
             $this->statusMessage = 'Keine Änderungen, kein Upload';
         }
@@ -463,9 +468,8 @@ final class App
         $this->renameDialog = new RenameDialog($side, $entry->name);
     }
 
-    private function handleRenameDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handleRenameDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, RenameDialog $dlg): void
     {
-        $dlg = $this->renameDialog;
         if ($event instanceof CharKeyEvent) {
             $dlg->input->insert($event->char);
 
@@ -476,7 +480,7 @@ final class App
         }
         match ($event->code) {
             KeyCode::Esc => $this->renameDialog = null,
-            KeyCode::Enter => $this->confirmRename(),
+            KeyCode::Enter => $this->confirmRename($dlg),
             KeyCode::Left => $dlg->input->moveLeft(),
             KeyCode::Right => $dlg->input->moveRight(),
             KeyCode::Home => $dlg->input->moveHome(),
@@ -487,9 +491,8 @@ final class App
         };
     }
 
-    private function confirmRename(): void
+    private function confirmRename(RenameDialog $dlg): void
     {
-        $dlg = $this->renameDialog;
         $this->renameDialog = null;
         $newName = trim($dlg->input->value());
         if ($newName === '' || $newName === $dlg->original) {
@@ -505,10 +508,10 @@ final class App
                 }
                 $this->statusMessage = "Umbenannt: {$dlg->original} → {$newName}";
                 $this->left->loadLocal();
-            } else {
+            } elseif ($this->sftp !== null) {
                 $this->sftp->renameEntry($dlg->original, $newName);
                 $this->statusMessage = "Umbenannt: {$dlg->original} → {$newName}";
-                $this->setRemoteListing($this->sftp->listDir());
+                $this->setRemoteListing($this->sftp, $this->sftp->listDir());
             }
         } catch (Throwable $e) {
             $this->statusMessage = 'Umbenennen fehlgeschlagen: ' . $e->getMessage();
@@ -528,9 +531,8 @@ final class App
         $this->mkdirDialog = new MkdirDialog($side);
     }
 
-    private function handleMkdirDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handleMkdirDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, MkdirDialog $dlg): void
     {
-        $dlg = $this->mkdirDialog;
         if ($event instanceof CharKeyEvent) {
             $dlg->input->insert($event->char);
 
@@ -541,7 +543,7 @@ final class App
         }
         match ($event->code) {
             KeyCode::Esc => $this->mkdirDialog = null,
-            KeyCode::Enter => $this->confirmMkdir(),
+            KeyCode::Enter => $this->confirmMkdir($dlg),
             KeyCode::Left => $dlg->input->moveLeft(),
             KeyCode::Right => $dlg->input->moveRight(),
             KeyCode::Home => $dlg->input->moveHome(),
@@ -552,9 +554,8 @@ final class App
         };
     }
 
-    private function confirmMkdir(): void
+    private function confirmMkdir(MkdirDialog $dlg): void
     {
-        $dlg = $this->mkdirDialog;
         $this->mkdirDialog = null;
         $name = trim($dlg->input->value());
         if ($name === '') {
@@ -568,10 +569,10 @@ final class App
                 }
                 $this->statusMessage = "Verzeichnis erstellt: {$name}";
                 $this->left->loadLocal();
-            } else {
+            } elseif ($this->sftp !== null) {
                 $this->sftp->createDirectory($name);
                 $this->statusMessage = "Verzeichnis erstellt: {$name}";
-                $this->setRemoteListing($this->sftp->listDir());
+                $this->setRemoteListing($this->sftp, $this->sftp->listDir());
             }
         } catch (Throwable $e) {
             $this->statusMessage = 'Erstellen fehlgeschlagen: ' . $e->getMessage();
@@ -599,11 +600,11 @@ final class App
         $this->deleteDialog = new DeleteDialog($side, $pairs);
     }
 
-    private function handleDeleteDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handleDeleteDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, DeleteDialog $dlg): void
     {
         if ($event instanceof CharKeyEvent) {
             match ($event->char) {
-                'y', 'Y' => $this->confirmDelete(),
+                'y', 'Y' => $this->confirmDelete($dlg),
                 'n', 'N' => $this->deleteDialog = null,
                 default => null,
             };
@@ -612,16 +613,15 @@ final class App
         }
         if ($event instanceof CodedKeyEvent) {
             match ($event->code) {
-                KeyCode::Enter => $this->confirmDelete(),
+                KeyCode::Enter => $this->confirmDelete($dlg),
                 KeyCode::Esc => $this->deleteDialog = null,
                 default => null,
             };
         }
     }
 
-    private function confirmDelete(): void
+    private function confirmDelete(DeleteDialog $dlg): void
     {
-        $dlg = $this->deleteDialog;
         $this->deleteDialog = null;
         $deleted = 0;
         $total = count($dlg->entries);
@@ -655,9 +655,9 @@ final class App
         if ($dlg->side === PanelSide::Left) {
             $this->tryRun(fn () => $this->left->loadLocal());
             $this->left->clearMarks();
-        } else {
+        } elseif ($this->sftp !== null) {
             try {
-                $this->setRemoteListing($this->sftp->listDir());
+                $this->setRemoteListing($this->sftp, $this->sftp->listDir());
             } catch (Throwable $e) {
                 $this->statusMessage = 'Listing fehlgeschlagen: ' . $e->getMessage();
 
@@ -691,24 +691,23 @@ final class App
         $this->profileDialog = new ProfileDialog($store);
     }
 
-    private function handleProfileDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handleProfileDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, ProfileDialog $dlg): void
     {
-        match ($this->profileDialog->mode) {
-            ProfileDialogMode::ListMode => $this->handleProfileListKey($event),
-            ProfileDialogMode::New => $this->handleProfileFormKey($event, isEdit: false),
-            ProfileDialogMode::Edit => $this->handleProfileFormKey($event, isEdit: true),
-            ProfileDialogMode::ConfirmDelete => $this->handleProfileConfirmDeleteKey($event),
+        match ($dlg->mode) {
+            ProfileDialogMode::ListMode => $this->handleProfileListKey($event, $dlg),
+            ProfileDialogMode::New => $this->handleProfileFormKey($event, $dlg, isEdit: false),
+            ProfileDialogMode::Edit => $this->handleProfileFormKey($event, $dlg, isEdit: true),
+            ProfileDialogMode::ConfirmDelete => $this->handleProfileConfirmDeleteKey($event, $dlg),
         };
     }
 
-    private function handleProfileListKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handleProfileListKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, ProfileDialog $dlg): void
     {
-        $dlg = $this->profileDialog;
         if ($event instanceof CharKeyEvent) {
             match ($event->char) {
-                'n', 'N' => $this->profileOpenNewForm(),
-                'e', 'E' => $this->profileEditSelected(),
-                'd', 'D' => $this->profileDeleteSelectedPrompt(),
+                'n', 'N' => $this->profileOpenNewForm($dlg),
+                'e', 'E' => $this->profileEditSelected($dlg),
+                'd', 'D' => $this->profileDeleteSelectedPrompt($dlg),
                 default => null,
             };
 
@@ -719,8 +718,8 @@ final class App
                 KeyCode::Esc => $this->profileDialog = null,
                 KeyCode::Up => $dlg->listMoveUp(),
                 KeyCode::Down => $dlg->listMoveDown(),
-                KeyCode::Enter => $this->profileConnectSelected(),
-                KeyCode::Delete => $this->profileDeleteSelectedPrompt(),
+                KeyCode::Enter => $this->profileConnectSelected($dlg),
+                KeyCode::Delete => $this->profileDeleteSelectedPrompt($dlg),
                 default => null,
             };
 
@@ -729,20 +728,19 @@ final class App
         // At this point $event can only be a FunctionKeyEvent — the other
         // two members of the union already returned above.
         if ($event->number === 2) {
-            $this->profileEditSelected();
+            $this->profileEditSelected($dlg);
         }
     }
 
-    private function profileOpenNewForm(): void
+    private function profileOpenNewForm(ProfileDialog $dlg): void
     {
-        $this->profileDialog->mode = ProfileDialogMode::New;
-        $this->profileDialog->form = new NewProfileForm();
-        $this->profileDialog->field = 0;
+        $dlg->mode = ProfileDialogMode::New;
+        $dlg->form = new NewProfileForm();
+        $dlg->field = 0;
     }
 
-    private function profileEditSelected(): void
+    private function profileEditSelected(ProfileDialog $dlg): void
     {
-        $dlg = $this->profileDialog;
         if ($dlg->store->profiles === []) {
             return;
         }
@@ -753,9 +751,8 @@ final class App
         $dlg->mode = ProfileDialogMode::Edit;
     }
 
-    private function profileDeleteSelectedPrompt(): void
+    private function profileDeleteSelectedPrompt(ProfileDialog $dlg): void
     {
-        $dlg = $this->profileDialog;
         if ($dlg->store->profiles === []) {
             return;
         }
@@ -763,9 +760,8 @@ final class App
         $dlg->mode = ProfileDialogMode::ConfirmDelete;
     }
 
-    private function profileConnectSelected(): void
+    private function profileConnectSelected(ProfileDialog $dlg): void
     {
-        $dlg = $this->profileDialog;
         if ($dlg->store->profiles === []) {
             return;
         }
@@ -774,9 +770,8 @@ final class App
         $this->beginConnect($profile);
     }
 
-    private function handleProfileFormKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, bool $isEdit): void
+    private function handleProfileFormKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, ProfileDialog $dlg, bool $isEdit): void
     {
-        $dlg = $this->profileDialog;
         $form = $dlg->form;
 
         if ($event instanceof CodedKeyEvent) {
@@ -784,7 +779,7 @@ final class App
                 KeyCode::Esc => $dlg->mode = ProfileDialogMode::ListMode,
                 KeyCode::Tab => $dlg->field = $form->nextField($dlg->field),
                 KeyCode::BackTab => $dlg->field = $form->prevField($dlg->field),
-                KeyCode::Enter => $isEdit ? $this->saveEditedProfile($dlg->editIndex) : $this->saveNewProfile(),
+                KeyCode::Enter => $isEdit ? $this->saveEditedProfile($dlg, $dlg->editIndex) : $this->saveNewProfile($dlg),
                 KeyCode::Backspace => $this->profileFieldBackspace($form, $dlg->field),
                 default => null,
             };
@@ -831,9 +826,8 @@ final class App
         }
     }
 
-    private function saveNewProfile(): void
+    private function saveNewProfile(ProfileDialog $dlg): void
     {
-        $dlg = $this->profileDialog;
         $profile = $dlg->form->toProfile();
         if ($profile === null) {
             $this->statusMessage = 'Name, Host und User dürfen nicht leer sein';
@@ -848,12 +842,11 @@ final class App
         $dlg->mode = ProfileDialogMode::ListMode;
     }
 
-    private function saveEditedProfile(?int $index): void
+    private function saveEditedProfile(ProfileDialog $dlg, ?int $index): void
     {
         if ($index === null) {
             return;
         }
-        $dlg = $this->profileDialog;
         $profile = $dlg->form->toProfile();
         if ($profile === null) {
             $this->statusMessage = 'Name, Host und User dürfen nicht leer sein';
@@ -927,9 +920,8 @@ final class App
         }
     }
 
-    private function handleProfileConfirmDeleteKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handleProfileConfirmDeleteKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, ProfileDialog $dlg): void
     {
-        $dlg = $this->profileDialog;
         $confirm = ($event instanceof CharKeyEvent && in_array($event->char, ['y', 'Y'], true))
             || ($event instanceof CodedKeyEvent && $event->code === KeyCode::Enter);
         $cancel = ($event instanceof CharKeyEvent && in_array($event->char, ['n', 'N'], true))
@@ -1040,9 +1032,8 @@ final class App
         $this->statusMessage = 'Getrennt';
     }
 
-    private function handlePasswordDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handlePasswordDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, PasswordDialog $dlg): void
     {
-        $dlg = $this->passwordDialog;
         if ($event instanceof CharKeyEvent) {
             $dlg->input->insert($event->char);
             $dlg->error = null;
@@ -1063,9 +1054,8 @@ final class App
         }
     }
 
-    private function handleHostKeyDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handleHostKeyDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, HostKeyDialog $dlg): void
     {
-        $dlg = $this->hostKeyDialog;
         $accept = ($event instanceof CharKeyEvent && in_array($event->char, ['y', 'Y'], true))
             || ($event instanceof CodedKeyEvent && $event->code === KeyCode::Enter);
         $reject = ($event instanceof CharKeyEvent && in_array($event->char, ['n', 'N'], true))
@@ -1089,9 +1079,8 @@ final class App
     // Permission-fix dialog (profiles.toml not mode 0600)
     // -------------------------------------------------------------------
 
-    private function handlePermissionDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handlePermissionDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, PermissionFixDialog $dlg): void
     {
-        $dlg = $this->permissionDialog;
         $fix = $event instanceof CharKeyEvent && in_array($event->char, ['f', 'F'], true);
         $dismiss = ($event instanceof CharKeyEvent && in_array($event->char, ['i', 'I'], true))
             || ($event instanceof CodedKeyEvent && $event->code === KeyCode::Esc);
@@ -1146,10 +1135,8 @@ final class App
         $this->shellDialog = $dlg;
     }
 
-    private function handleShellDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    private function handleShellDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, ShellDialog $dlg): void
     {
-        $dlg = $this->shellDialog;
-
         if ($dlg->output !== null) {
             if ($event instanceof CharKeyEvent && $event->char === 'q') {
                 $this->shellDialog = null;
@@ -1182,7 +1169,7 @@ final class App
         }
         match ($event->code) {
             KeyCode::Esc => $this->shellDialog = null,
-            KeyCode::Enter => $this->runShellCommand(),
+            KeyCode::Enter => $this->runShellCommand($dlg),
             KeyCode::Left => $dlg->input->moveLeft(),
             KeyCode::Right => $dlg->input->moveRight(),
             KeyCode::Home => $dlg->input->moveHome(),
@@ -1193,9 +1180,8 @@ final class App
         };
     }
 
-    private function runShellCommand(): void
+    private function runShellCommand(ShellDialog $dlg): void
     {
-        $dlg = $this->shellDialog;
         $cmd = trim($dlg->input->value());
         if ($cmd === '') {
             $this->shellDialog = null;
@@ -1279,9 +1265,9 @@ final class App
     }
 
     /** @param FileEntry[] $entries */
-    private function setRemoteListing(array $entries): void
+    private function setRemoteListing(SftpConnection $sftp, array $entries): void
     {
-        $this->right->path = $this->sftp->remotePath;
+        $this->right->path = $sftp->remotePath;
         $this->right->entries = $entries;
         $this->right->selected = 0;
         $this->right->marked = [];

@@ -24,7 +24,7 @@ final class ShellDialogRenderer
 {
     public static function build(ShellDialog $dlg, string $cwd, Theme $theme): Widget
     {
-        return $dlg->output === null ? self::buildInput($dlg, $cwd, $theme) : self::buildOutput($dlg, $theme);
+        return $dlg->output === null ? self::buildInput($dlg, $cwd, $theme) : self::buildOutput($dlg->output, $dlg, $theme);
     }
 
     private static function buildInput(ShellDialog $dlg, string $cwd, Theme $theme): Widget
@@ -57,11 +57,12 @@ final class ShellDialogRenderer
         return new CenteredBox(70, 25, $block);
     }
 
-    private static function buildOutput(ShellDialog $dlg, Theme $theme): Widget
+    /** @param string[] $output */
+    private static function buildOutput(array $output, ShellDialog $dlg, Theme $theme): Widget
     {
         $lines = array_map(
             static fn (string $l): Line => Line::fromSpans(new Span($l, Style::default()->fg($theme->textPrimary))),
-            $dlg->output,
+            $output,
         );
         $paragraph = ParagraphWidget::fromText(Text::fromLines(...$lines))
             ->style(Style::default()->bg($theme->shellOutputBg));

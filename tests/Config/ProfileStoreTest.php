@@ -123,6 +123,9 @@ final class ProfileStoreTest extends TestCase
         $store->save();
 
         $rawToml = file_get_contents(ProfileStore::configPath());
+        // A failed read should show up as a clear assertion failure here,
+        // not a confusing "expected string, got false" further down.
+        self::assertIsString($rawToml);
         self::assertStringNotContainsString('remote_path', $rawToml);
         self::assertStringNotContainsString('local_start_path', $rawToml);
 

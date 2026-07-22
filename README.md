@@ -286,19 +286,19 @@ permission enforcement, `$_SERVER['HOME']`-isolated via `setUp()`/`tearDown()` s
 touches a real `~/.config/vela/profiles.toml`), and `tests/Transfer/TransferEngineTest.php`
 (`countLocalFiles()` only — `uploadBatch`/`downloadBatch`/`countRemoteFiles` need a real
 `SftpConnection`, which is `final` with a private constructor, so they stay covered by live
-manual testing instead, same as everywhere else in this project). 35 tests, 58 assertions,
+manual testing instead, same as everywhere else in this project). 35 tests, 59 assertions,
 all passing.
 
-PHPStan (second of the three planned quality tools) is now set up at **level 6** — deliberately
-lower than php-tui's own `level: max` + `strictRules`, since this is a much younger
-codebase; the plan is to ratchet the level up in later steps rather than face hundreds of
-findings at once. Run with:
+PHPStan (second of the three planned quality tools) started at **level 6** and is being
+ratcheted up step by step — deliberately gradual rather than jumping straight to php-tui's
+own `level: max` + `strictRules`, since this is a much younger codebase and each level tends
+to surface a genuinely different category of issue. Currently at **level 8**. Run with:
 
 ```
 composer phpstan
 ```
 
-Fixed all 11 findings from the first run, each a real issue rather than noise:
+Fixed all 11 findings from the first run (level 6), each a real issue rather than noise:
 
 - **Three top-level `bin/*.php` scripts each declared a global `function run(...)`** with
   different signatures — harmless only because they're never `require`'d together in the
@@ -323,6 +323,46 @@ Fixed all 11 findings from the first run, each a real issue rather than noise:
   explicit `instanceof PrivateKey` check with a new `NotAPrivateKeyException` for a clear,
   actionable error instead.
 
-All 35 PHPUnit tests and a live pty smoke test still pass after the fixes. Next planned
-step: try ratcheting the level up further (`level: max` like php-tui, or a step in between),
-then Rector.
+All 35 PHPUnit tests and a live pty smoke test still pass after the fixes.
+
+Ratcheted to **level 7** next. 5 findings, all fixed:
+
+- `Keychain::run()`'s `$argv` param was typed `string[]`, but `proc_open()` specifically
+  needs a `list<string>` (sequential integer keys) when given an array command — a plain
+  `string[]` doesn't guarantee that. Narrowed the PHPDoc type with a comment explaining why.
+- `tailRemoteFile()` passed phpseclib's `$this->sftp->get($path)` straight into `explode()`,
+  but `get()` is polymorphically typed `string|bool` (the actual return type secretly depends
+  on the unused `$local_file` parameter) — fixed with an `is_string()` check instead of the
+  previous `=== false` comparison, which only handled one half of the non-string case.
+- `authenticate()` passed an unchecked `file_get_contents($keyPath)` straight into
+  `PublicKeyLoader::load()`, which accepts `string`, not `string|false` — added an explicit
+  false-check that throws a clear `SftpException` naming the unreadable path. A genuine
+  TOCTOU-race robustness improvement, not just a type-checker appeasement.
+- The same unchecked-`file_get_contents()` pattern in `ProfileStoreTest`'s own round-trip
+  test — fixed with `self::assertIsString($rawToml)` before the string-assertions that
+  followed, which is both correct type-narrowing *and* a better test (a failed read now
+  fails with a clear message instead of a confusing "expected string, got false" further
+  down).
+
+Ratcheted to **level 8** next. 120 findings, 119 of them in `App.php` — but all one
+underlying pattern, not 120 separate bugs: dialog-handler methods (`handleRenameDialogKey`,
+`confirmMkdir`, `handleProfileFormKey`, etc.) read nullable properties like `$this->sftp` or
+`$this->renameDialog` that `handleKey()`'s dispatch chain has already null-checked before
+calling them — an invariant PHPStan can't see across the method-call boundary, since from its
+perspective the property could have changed by the time the callee reads it again. Fixed by
+threading the already-checked value through as an explicit non-nullable parameter instead of
+re-reading the property (`handleRenameDialogKey(..., RenameDialog $dlg)` rather than
+`$dlg = $this->renameDialog` inside the method) — mechanically repeated across all 8 dialog
+clusters (rename, mkdir, delete, password, host-key, permission, shell, profile incl. its
+list/form/confirm-delete sub-dispatch). A related variant showed up in closures passed to
+`tryRun()`: PHPStan's null-narrowing doesn't reliably survive a closure boundary either, so
+`enterActive()`, `uploadActive()`, `downloadActive()`, `goUpActive()`, and `finishEdit()` each
+snapshot `$this->sftp` to a local `$sftp` variable before the closure instead of reading
+`$this->sftp` (or worse, `$this->sftp->something()`) from inside it. The 1 remaining finding
+was the same pattern in miniature in `ShellDialogRenderer::build()`: it passed `$dlg` into
+`buildOutput()` after checking `$dlg->output !== null`, but `buildOutput()` re-read
+`$dlg->output` itself — fixed by passing the already-null-checked array directly.
+
+All 35 PHPUnit tests, PHPStan level 8 (0 errors), and a live pty smoke test (incl. exercising
+the refactored profile-dialog cluster: open, create, list, delete) still pass after the
+fixes. Next planned step: level 9, then `max` (matching php-tui's own setting), then Rector.

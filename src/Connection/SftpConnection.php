@@ -215,7 +215,12 @@ final class SftpConnection
     public function tailRemoteFile(string $path, int $maxLines): array
     {
         $content = $this->sftp->get($path);
-        if ($content === false) {
+        // phpseclib's get() is polymorphic depending on the $local_file
+        // argument we didn't pass — its own docblock says it returns
+        // string|bool, so "true" is technically still possible per the
+        // type system, even though it can't happen for this call shape.
+        // is_string() rules out both false and the theoretical true.
+        if (!is_string($content)) {
             throw new SftpException("Cannot read {$path}");
         }
 
@@ -344,7 +349,15 @@ final class SftpConnection
                 throw new InsecureKeyPermissionsException($keyPath, $mode);
             }
 
-            $key = PublicKeyLoader::load(file_get_contents($keyPath));
+            // is_file() above doesn't guarantee a subsequent read succeeds —
+            // e.g. a TOCTOU race, or a permission mismatch not caught by
+            // the mode-bits check (which only catches "too open", not
+            // "owned by someone else entirely").
+            $keyContent = file_get_contents($keyPath);
+            if ($keyContent === false) {
+                throw new SftpException("Cannot read key file: {$keyPath}");
+            }
+            $key = PublicKeyLoader::load($keyContent);
             if (!$key instanceof PrivateKey) {
                 // PublicKeyLoader::load() happily loads a *public* key file
                 // too (it returns whichever half is actually in the file) —

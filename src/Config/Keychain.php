@@ -97,7 +97,9 @@ final class Keychain
     }
 
     /**
-     * @param string[] $argv
+     * @param list<string> $argv proc_open() requires a *list* specifically
+     *   (sequential integer keys) when given an array command — a plain
+     *   `string[]` doesn't guarantee that.
      * @return array{exit:int,stdout:string,stderr:string}
      */
     private static function run(array $argv, ?string $stdin = null): array

@@ -1,9 +1,5 @@
 parameters:
-    # Starting deliberately lower than php-tui's "level: max" + strictRules —
-    # this is a much younger codebase. The plan is to fix what level 6 finds,
-    # then ratchet the level up in a later step once it's clean, rather than
-    # facing hundreds of findings at once.
-    level: 6
+    level: 8
     paths:
         - src
         - bin
