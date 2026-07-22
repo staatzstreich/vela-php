@@ -18,6 +18,7 @@ use Vela\Config\UnsafePermissionsException;
 use Vela\Connection\SftpConnection;
 use Vela\Connection\UnknownHostKeyException;
 use Vela\Config\Keychain;
+use Vela\Dialog\CopyConflictDialog;
 use Vela\Dialog\DeleteDialog;
 use Vela\Dialog\EditRequest;
 use Vela\Dialog\HostKeyDialog;
@@ -69,6 +70,8 @@ final class App
 
     public ?DeleteDialog $deleteDialog = null;
 
+    public ?CopyConflictDialog $copyConflictDialog = null;
+
     public ?PasswordDialog $passwordDialog = null;
 
     public ?HostKeyDialog $hostKeyDialog = null;
@@ -91,17 +94,12 @@ final class App
     {
         $this->left = new PanelState($leftPath);
         $this->right = new PanelState($rightPath);
-        // Downgrade (for now): the right panel stays empty (no path, no
-        // listing) until an SFTP connection is established (attachSftp()/
-        // doConnect() populate both), rather than browsing $rightPath
-        // locally like the left panel does. F5/F6 (Upload/Download) only
-        // make sense with a remote side, and showing two local panels
-        // invited pressing them for nothing. Left commented out, not
-        // removed: local-to-local copy is a real planned feature (see
-        // conversation/README) that would want this back.
-        $this->right->path = '';
+        // Both panels start out browsing the local filesystem; the right
+        // one switches to the remote listing once attachSftp()/doConnect()
+        // runs. This enables local-to-local copy (F5/F6 while disconnected)
+        // — see copyToRight()/copyToLeft() and TransferEngine::copyBatch().
         $this->left->loadLocal();
-        // $this->right->loadLocal();
+        $this->right->loadLocal();
 
         ThemeStore::ensureThemes();
         $this->themeChoice = ThemeStore::loadThemeChoice();
@@ -198,6 +196,8 @@ final class App
             $this->handlePasswordDialogKey($event, $this->passwordDialog);
         } elseif ($this->deleteDialog !== null) {
             $this->handleDeleteDialogKey($event, $this->deleteDialog);
+        } elseif ($this->copyConflictDialog !== null) {
+            $this->handleCopyConflictDialogKey($event, $this->copyConflictDialog, $onTransferTick);
         } elseif ($this->renameDialog !== null) {
             $this->handleRenameDialogKey($event, $this->renameDialog);
         } elseif ($this->mkdirDialog !== null) {
@@ -245,8 +245,8 @@ final class App
             2 => $this->openRenameDialog(),
             3 => $this->disconnectSftp(),
             4 => $this->prepareEdit(),
-            5 => $this->uploadActive($onTransferTick),
-            6 => $this->downloadActive($onTransferTick),
+            5 => $this->isConnected() ? $this->uploadActive($onTransferTick) : $this->copyToRight($onTransferTick),
+            6 => $this->isConnected() ? $this->downloadActive($onTransferTick) : $this->copyToLeft($onTransferTick),
             7 => $this->openMkdirDialog(),
             8 => $this->openDeleteDialog(),
             9 => $this->openProfileDialog(),
@@ -366,6 +366,96 @@ final class App
             $this->tryRun(fn () => $this->left->loadLocal());
         } else {
             $this->statusMessage = 'Download fehlgeschlagen: ' . ($progress->errorMessage ?? 'unbekannter Fehler');
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // Local-to-local copy (F5/F6 while disconnected)
+    // -------------------------------------------------------------------
+
+    private function copyToRight(?callable $onTick = null): void
+    {
+        if ($this->sftp !== null) {
+            return;
+        }
+        $this->runLocalCopy(PanelSide::Left, $this->left, $this->right, $onTick);
+    }
+
+    private function copyToLeft(?callable $onTick = null): void
+    {
+        if ($this->sftp !== null) {
+            return;
+        }
+        $this->runLocalCopy(PanelSide::Right, $this->right, $this->left, $onTick);
+    }
+
+    private function runLocalCopy(PanelSide $sourceSide, PanelState $source, PanelState $dest, ?callable $onTick): void
+    {
+        $entries = self::entriesToTransfer($source);
+        if ($entries === []) {
+            return;
+        }
+
+        $conflicts = TransferEngine::findConflicts($entries, $dest->path);
+        if ($conflicts !== []) {
+            $this->copyConflictDialog = new CopyConflictDialog($sourceSide, $entries, $source->path, $dest->path, $conflicts);
+
+            return;
+        }
+
+        $this->performCopy($sourceSide, $entries, $source->path, $dest->path, $onTick);
+    }
+
+    private function handleCopyConflictDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, CopyConflictDialog $dlg, ?callable $onTick): void
+    {
+        if ($event instanceof CharKeyEvent) {
+            match ($event->char) {
+                'y', 'Y' => $this->confirmCopy($dlg, $onTick),
+                'n', 'N' => $this->copyConflictDialog = null,
+                default => null,
+            };
+
+            return;
+        }
+        if ($event instanceof CodedKeyEvent) {
+            match ($event->code) {
+                KeyCode::Enter => $this->confirmCopy($dlg, $onTick),
+                KeyCode::Esc => $this->copyConflictDialog = null,
+                default => null,
+            };
+        }
+    }
+
+    private function confirmCopy(CopyConflictDialog $dlg, ?callable $onTick): void
+    {
+        $this->copyConflictDialog = null;
+        $this->performCopy($dlg->sourceSide, $dlg->entries, $dlg->sourceDir, $dlg->destDir, $onTick);
+    }
+
+    /** @param list<FileEntry> $entries */
+    private function performCopy(PanelSide $sourceSide, array $entries, string $sourceDir, string $destDir, ?callable $onTick): void
+    {
+        $sourcePanel = $sourceSide === PanelSide::Left ? $this->left : $this->right;
+        $destPanel = $sourceSide === PanelSide::Left ? $this->right : $this->left;
+        $sourcePanel->clearMarks();
+
+        $totalFiles = max(1, array_sum(array_map(
+            fn (FileEntry $e): int => TransferEngine::countLocalFiles(self::joinLocal($sourceDir, $e->name)),
+            $entries,
+        )));
+
+        $progress = new TransferProgress($totalFiles);
+        $this->activeTransfer = $progress;
+        $this->activeTransferVerb = 'Copy';
+
+        TransferEngine::copyBatch($entries, $sourceDir, $destDir, $progress, $onTick);
+
+        $this->activeTransfer = null;
+        if ($progress->state === TransferState::Done) {
+            $this->statusMessage = 'Kopieren abgeschlossen';
+            $this->tryRun(fn () => $destPanel->loadLocal());
+        } else {
+            $this->statusMessage = 'Kopieren fehlgeschlagen: ' . ($progress->errorMessage ?? 'unbekannter Fehler');
         }
     }
 
@@ -1036,12 +1126,10 @@ final class App
             return;
         }
         $this->sftp = null;
-        // Downgrade (for now): see the matching comment in __construct().
-        // $homeEnv = $_SERVER['HOME'] ?? getenv('HOME');
-        // $home = is_string($homeEnv) && $homeEnv !== '' ? $homeEnv : (getcwd() ?: '/');
-        // $this->right = new PanelState($home);
-        // $this->tryRun(fn () => $this->right->loadLocal());
-        $this->right = new PanelState('');
+        $homeEnv = $_SERVER['HOME'] ?? getenv('HOME');
+        $home = is_string($homeEnv) && $homeEnv !== '' ? $homeEnv : (getcwd() ?: '/');
+        $this->right = new PanelState($home);
+        $this->tryRun(fn () => $this->right->loadLocal());
         $this->statusMessage = 'Getrennt';
     }
 

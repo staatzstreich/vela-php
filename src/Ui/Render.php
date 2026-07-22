@@ -51,6 +51,9 @@ final class Render
         if ($app->deleteDialog !== null) {
             $layers[] = DeleteDialogRenderer::build($app->deleteDialog, $theme);
         }
+        if ($app->copyConflictDialog !== null) {
+            $layers[] = CopyConflictDialogRenderer::build($app->copyConflictDialog, $theme);
+        }
         if ($app->shellDialog !== null) {
             $layers[] = ShellDialogRenderer::build($app->shellDialog, $app->left->path, $theme);
         }
@@ -115,12 +118,11 @@ final class Render
 
     /**
      * Mirrors statusbar.rs render_hint_bar(): row 0 is the function-key
-     * badge row, row 1 the status message. Deviates from vela's Rust
-     * original (which always shows F5/F6) by hiding Upload/Download too
-     * while disconnected — same reasoning as the already-conditional F3
-     * Disconnect: showing a hint for an action that's a silent no-op right
-     * now (the right panel has nothing to transfer to/from until connected)
-     * is worse than not showing it.
+     * badge row, row 1 the status message. F5/F6 are always shown (matching
+     * vela's Rust original), but their label changes with connection state:
+     * Upload/Download once connected, Copy →/Copy ← (local-to-local, see
+     * App::copyToRight()/copyToLeft()) while disconnected — never a hint
+     * for an action that's a silent no-op.
      */
     private static function buildHintArea(Area $area, App $app, Theme $theme): Widget
     {
@@ -134,6 +136,9 @@ final class Render
         if ($connected) {
             $hints[] = ['F5', 'Upload', false];
             $hints[] = ['F6', 'Download', false];
+        } else {
+            $hints[] = ['F5', 'Copy →', false];
+            $hints[] = ['F6', 'Copy ←', false];
         }
         $hints[] = ['F7', 'MkDir', false];
         $hints[] = ['F8', 'Delete', false];

@@ -30,7 +30,11 @@ final class TransferBarRenderer
 {
     public static function build(Area $area, TransferProgress $progress, string $verb, Theme $theme): Widget
     {
-        $barColor = $verb === 'Download' ? $theme->downloadBar : $theme->uploadBar;
+        $barColor = match ($verb) {
+            'Download' => $theme->downloadBar,
+            'Copy' => $theme->copyBar,
+            default => $theme->uploadBar,
+        };
 
         $rows = Layout::default()
             ->direction(Direction::Vertical)

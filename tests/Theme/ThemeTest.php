@@ -19,11 +19,11 @@ use Vela\Theme\Theme;
 final class ThemeTest extends TestCase
 {
     #[Test]
-    public function toArrayProducesAllFiftyColorFields(): void
+    public function toArrayProducesAllColorFields(): void
     {
         $fields = Theme::dark()->toArray();
 
-        self::assertCount(50, $fields);
+        self::assertCount(51, $fields);
     }
 
     #[Test]

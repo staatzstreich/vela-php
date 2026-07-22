@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vela\Transfer;
 
+use RuntimeException;
 use Throwable;
 use Vela\Connection\SftpConnection;
 use Vela\Fs\FileEntry;
@@ -201,6 +202,170 @@ final class TransferEngine
                 self::downloadFile($sftp, $remoteChild, $localDir, $progress, $onTick);
             }
         }
+    }
+
+    /**
+     * Copy $entries (already resolved from the source local panel: marked,
+     * or the single highlighted one) from $sourceDir into $destDir — both
+     * purely local paths, no SftpConnection involved. Unlike upload_batch()/
+     * download_batch(), there's no Rust original to mirror: local-to-local
+     * copy was never implemented in vela, this is a PHP-only addition.
+     * Existing files at the destination are silently overwritten and
+     * existing directories are merged into (see copyDirRecursive()) — the
+     * caller is expected to have already confirmed that via findConflicts()
+     * before calling this, the same way uploadActive()/downloadActive()
+     * never ask before overwriting a remote file either.
+     *
+     * @param list<FileEntry> $entries
+     * @param ?callable(TransferProgress):void $onTick
+     */
+    public static function copyBatch(
+        array $entries,
+        string $sourceDir,
+        string $destDir,
+        TransferProgress $progress,
+        ?callable $onTick = null,
+    ): void {
+        try {
+            if (self::sameDirectory($sourceDir, $destDir)) {
+                throw new RuntimeException('Quelle und Ziel sind dasselbe Verzeichnis');
+            }
+            foreach ($entries as $entry) {
+                $source = self::joinLocal($sourceDir, $entry->name);
+                if (is_dir($source) && !is_link($source) && self::isWithin($destDir, $source)) {
+                    throw new RuntimeException("'{$entry->name}' kann nicht in sein eigenes Unterverzeichnis kopiert werden");
+                }
+                if (is_link($source)) {
+                    self::copySymlink($source, $destDir, $progress, $onTick);
+                } elseif (is_dir($source)) {
+                    self::copyDirRecursive($source, $destDir, $progress, $onTick);
+                } else {
+                    self::copyFile($source, $destDir, $progress, $onTick);
+                }
+            }
+            $progress->state = TransferState::Done;
+        } catch (Throwable $e) {
+            $progress->state = TransferState::Failed;
+            $progress->errorMessage = $e->getMessage();
+        }
+        self::tick($progress, $onTick);
+    }
+
+    /**
+     * Names among $entries that already exist directly inside $destDir —
+     * used by App to decide whether to show a confirmation dialog before
+     * calling copyBatch(). Top-level only: overwriting is a per-top-level-
+     * entry decision, matching how copyDirRecursive() merges nested
+     * directories without re-asking per nested file once the user has
+     * confirmed once.
+     *
+     * @param list<FileEntry> $entries
+     * @return list<string>
+     */
+    public static function findConflicts(array $entries, string $destDir): array
+    {
+        $conflicts = [];
+        foreach ($entries as $entry) {
+            if (file_exists(self::joinLocal($destDir, $entry->name))) {
+                $conflicts[] = $entry->name;
+            }
+        }
+
+        return $conflicts;
+    }
+
+    private static function copyFile(string $source, string $destDir, TransferProgress $progress, ?callable $onTick): void
+    {
+        $name = basename($source);
+        $dest = self::joinLocal($destDir, $name);
+        if (is_dir($dest)) {
+            throw new RuntimeException("Ziel '{$dest}' ist ein Verzeichnis, Quelle eine Datei");
+        }
+
+        $progress->currentFile = $name;
+        $progress->bytesDone = 0;
+        $progress->bytesTotal = @filesize($source) ?: 0;
+        self::tick($progress, $onTick);
+
+        if (!copy($source, $dest)) {
+            throw new RuntimeException("Kopieren fehlgeschlagen: {$source}");
+        }
+
+        $progress->bytesDone = $progress->bytesTotal;
+        $progress->filesDone++;
+        self::tick($progress, $onTick);
+    }
+
+    /**
+     * Any symlink — to a file or a directory — is recreated as a fresh
+     * symlink, never followed/recursed into. Mirrors
+     * App::deleteLocalRecursive()'s `is_dir($path) && !is_link($path)`
+     * convention: a symlink is always handled as its own thing, regardless
+     * of what it points at.
+     */
+    private static function copySymlink(string $source, string $destDir, TransferProgress $progress, ?callable $onTick): void
+    {
+        $name = basename($source);
+        $dest = self::joinLocal($destDir, $name);
+        if (is_dir($dest) && !is_link($dest)) {
+            throw new RuntimeException("Ziel '{$dest}' ist ein Verzeichnis, Quelle ein Symlink");
+        }
+
+        $progress->currentFile = $name;
+        $progress->bytesDone = 0;
+        $progress->bytesTotal = 0;
+        self::tick($progress, $onTick);
+
+        if (is_link($dest) || file_exists($dest)) {
+            unlink($dest);
+        }
+        $target = readlink($source);
+        if ($target === false || !symlink($target, $dest)) {
+            throw new RuntimeException("Symlink konnte nicht erstellt werden: {$dest}");
+        }
+
+        $progress->filesDone++;
+        self::tick($progress, $onTick);
+    }
+
+    private static function copyDirRecursive(string $sourceDir, string $destParent, TransferProgress $progress, ?callable $onTick): void
+    {
+        $destDir = self::joinLocal($destParent, basename($sourceDir));
+        if (file_exists($destDir) && !is_dir($destDir)) {
+            throw new RuntimeException("Ziel '{$destDir}' ist kein Verzeichnis, Quelle aber schon");
+        }
+        if (!is_dir($destDir) && !mkdir($destDir, 0755)) {
+            throw new RuntimeException("Verzeichnis konnte nicht erstellt werden: {$destDir}");
+        }
+
+        $names = @scandir($sourceDir) ?: [];
+        foreach ($names as $name) {
+            if ($name === '.' || $name === '..') {
+                continue;
+            }
+            $child = self::joinLocal($sourceDir, $name);
+            if (is_link($child)) {
+                self::copySymlink($child, $destDir, $progress, $onTick);
+            } elseif (is_dir($child)) {
+                self::copyDirRecursive($child, $destDir, $progress, $onTick);
+            } else {
+                self::copyFile($child, $destDir, $progress, $onTick);
+            }
+        }
+    }
+
+    private static function sameDirectory(string $a, string $b): bool
+    {
+        return rtrim((string) (@realpath($a) ?: $a), '/') === rtrim((string) (@realpath($b) ?: $b), '/');
+    }
+
+    /** True if $path is $ancestorCandidate itself, or nested inside it. */
+    private static function isWithin(string $path, string $ancestorCandidate): bool
+    {
+        $pathReal = rtrim((string) (@realpath($path) ?: $path), '/');
+        $ancestorReal = rtrim((string) (@realpath($ancestorCandidate) ?: $ancestorCandidate), '/');
+
+        return $pathReal === $ancestorReal || str_starts_with($pathReal . '/', $ancestorReal . '/');
     }
 
     private static function tick(TransferProgress $progress, ?callable $onTick): void

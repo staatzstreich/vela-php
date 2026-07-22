@@ -16,7 +16,7 @@ final class Theme
         'panelActiveBorder', 'panelInactiveBorder', 'directoryIcon', 'fileName', 'markedEntry',
         'markIndicator', 'sizeText', 'dateText', 'permissionText', 'highlightBg', 'highlightFg',
         'hintBadgeBg', 'hintBadgeFg', 'hintBadgeDangerBg', 'hintLabel', 'statusMessage', 'hintBarBg',
-        'transferFilledFg', 'transferEmptyBg', 'uploadBar', 'downloadBar', 'transferRowBg', 'filenameText',
+        'transferFilledFg', 'transferEmptyBg', 'uploadBar', 'downloadBar', 'copyBar', 'transferRowBg', 'filenameText',
         'dialogActiveBorder', 'dialogInactiveBorder', 'dialogWarningBorder', 'dialogErrorBorder', 'dialogSuccessBorder',
         'textPrimary', 'textSecondary', 'textMuted', 'textActive', 'textInactive', 'cursorBg', 'cursorFg',
         'toggleOn', 'toggleOff', 'textDanger', 'textSuccess', 'textWarning', 'textInfo', 'profileActive',
@@ -49,6 +49,7 @@ final class Theme
         public AnsiColor $transferEmptyBg,
         public AnsiColor $uploadBar,
         public AnsiColor $downloadBar,
+        public AnsiColor $copyBar,
         public AnsiColor $transferRowBg,
         public AnsiColor $filenameText,
 
@@ -112,6 +113,7 @@ final class Theme
             transferEmptyBg: AnsiColor::DarkGray,
             uploadBar: AnsiColor::Green,
             downloadBar: AnsiColor::Cyan,
+            copyBar: AnsiColor::Magenta,
             transferRowBg: AnsiColor::Black,
             filenameText: AnsiColor::White,
 
@@ -172,6 +174,7 @@ final class Theme
             transferEmptyBg: AnsiColor::Gray,
             uploadBar: AnsiColor::Green,
             downloadBar: AnsiColor::Blue,
+            copyBar: AnsiColor::Magenta,
             transferRowBg: AnsiColor::White,
             filenameText: AnsiColor::Black,
 

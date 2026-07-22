@@ -23,10 +23,10 @@ connections.
 
 Milestone 3 done: `Vela\Connection\SftpConnection` (via phpseclib) connects, verifies the
 server's host key against `~/.ssh/known_hosts`, and browses a remote directory — the right
-panel switches to the remote listing once connected (at the time, it browsed the local
-filesystem beforehand like the left panel; see "Right panel downgrade" further down for why
-it now starts empty instead). There's no connect dialog yet (that's milestone 6), so it's
-wired up through a CLI flag in the meantime:
+panel switches to the remote listing once connected, browsing the local filesystem like the
+left panel beforehand (briefly downgraded to an empty panel mid-project, then restored once
+"Local-to-local copy" further down gave that state a real purpose). There's no connect dialog
+yet (that's milestone 6), so it's wired up through a CLI flag in the meantime:
 
 ```
 php bin/vela.php --profile="Lokal"
@@ -462,29 +462,43 @@ the profile dialog (the two changed UI files).
 With PHPUnit, PHPStan (`max`), and Rector all in place, the three-tool tooling initiative
 this section has been tracking is complete.
 
-**Right panel downgrade**: before connecting, the right panel used to browse the local
-filesystem just like the left one (see milestone 3 above for the old behavior this changes),
-and the hint bar always showed `F5`
-Upload / `F6` Download regardless of connection state. Both match vela's own Rust original
-(`ui/statusbar.rs` always shows F5/F6 too) — not a porting bug, but a rough edge worth fixing
-independently: pressing F5/F6 without a connection was a silent no-op (`uploadActive()`/
-`downloadActive()` already return early on `$this->sftp === null`, just with no feedback),
-and two local panels side by side invited pressing them for nothing.
+**Local-to-local copy** (F5/F6 while disconnected) closes out a stopgap from earlier in this
+same tooling-focused stretch: before connecting, the right panel briefly stayed empty and
+F5/F6 were hidden entirely, because pressing Upload/Download without a connection was a
+silent no-op and two local panels side by side invited pressing them for nothing anyway.
+Both the always-visible F5/F6 hints and the local-then-remote right panel actually match
+vela's own Rust original (`ui/statusbar.rs` always shows F5/F6 too) — not a porting bug, but
+local-to-local copy was never implemented or even planned in the Rust original (confirmed by
+grepping `transfer/queue.rs`/`app.rs`/its README for any trace — none), so there was no
+existing design to port here; this is a PHP-only addition, built now instead of deferred
+further.
 
-The real fix would be building local-to-local copy — a genuine planned feature (raised
-during this discussion as something the original vela design intended too), but a separate,
-larger piece of work. For now:
+What shipped:
 
-- The right panel starts — and returns to, on disconnect — with an empty path and no
-  listing, populated only once `attachSftp()`/`doConnect()` runs. `PanelRenderer`'s title
-  omits the `"— path"` segment entirely for an empty path (`Remote [nicht verbunden]` instead
-  of a stale local path next to it).
-- The old local-loading code is commented out, not deleted, in both `App::__construct()` and
-  `disconnectSftp()` — local-to-local copy would want it back.
-- `F5`/`F6` only appear in the hint bar once connected, exactly like `F3` Disconnect already
-  did — deviating from vela's Rust original deliberately here, since showing a hint for an
-  action that's currently a no-op is worse than not showing it.
+- `Vela\Transfer\TransferEngine::copyBatch()` + `findConflicts()` — a local-only sibling to
+  `uploadBatch()`/`downloadBatch()` (no `SftpConnection` at all), same abort-on-first-error
+  shape. Guards against copying a directory onto itself or into its own subdirectory; treats
+  every symlink (file or directory) as a symlink to recreate, never following/recursing into
+  it, matching `App::deleteLocalRecursive()`'s existing convention; merges into an existing
+  destination directory rather than refusing or wiping it. Fully unit tested (17 new cases in
+  `TransferEngineTest`) — unlike `uploadBatch`/`downloadBatch`, this has zero SFTP dependency,
+  so for once the transfer logic itself is covered by more than live pty testing.
+- A new `Vela\Dialog\CopyConflictDialog` + `CopyConflictDialogRenderer`, modeled directly on
+  `DeleteDialog`/`DeleteDialogRenderer` (same list/hint-row/`CenteredBox` shape), shown only
+  when `findConflicts()` finds a name collision — otherwise the copy runs immediately with no
+  confirmation, matching `uploadActive()`/`downloadActive()`'s existing no-confirmation UX.
+- The right panel resumes local browsing before connecting and on disconnect (the
+  local-loading code from the stopgap is no longer commented out); `F5`/`F6` are always shown
+  again, labeled `Upload`/`Download` once connected or **`Copy →`**/**`Copy ←`** while
+  disconnected — never a hint for a no-op action in either state.
+- A new `copyBar` theme color (Magenta in both `dark()`/`light()`) so the reused
+  `TransferBarRenderer` progress bar gets a visually distinct color for `Copy`, not the same
+  green as `Upload`.
 
-Verified: `composer phpstan` (0 errors at `max`), `composer test` (35 tests, 59 assertions),
-and live pty smoke tests confirming both the empty right panel's title and the disconnected
-hint bar (`F1/F2/F4/F7/F8/F9/!/^U/F10`, no F5/F6).
+Verified: `composer phpstan` (0 errors at `max`), `composer test` (52 tests, 98 assertions),
+`composer rector` (no changes needed — the new code was already clean against this project's
+ruleset), and live pty smoke tests: marking a file/directory and copying both directions
+(including a recursive directory copy merging into an existing destination directory with an
+untouched sibling file), triggering the conflict dialog and confirming an overwrite (verified
+the destination content actually changed), and confirming the hint bar/right-panel state
+across connect/disconnect.
