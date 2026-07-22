@@ -23,8 +23,10 @@ connections.
 
 Milestone 3 done: `Vela\Connection\SftpConnection` (via phpseclib) connects, verifies the
 server's host key against `~/.ssh/known_hosts`, and browses a remote directory — the right
-panel switches from local to remote listing once connected. There's no connect dialog yet
-(that's milestone 6), so it's wired up through a CLI flag in the meantime:
+panel switches to the remote listing once connected (at the time, it browsed the local
+filesystem beforehand like the left panel; see "Right panel downgrade" further down for why
+it now starts empty instead). There's no connect dialog yet (that's milestone 6), so it's
+wired up through a CLI flag in the meantime:
 
 ```
 php bin/vela.php --profile="Lokal"
@@ -459,3 +461,30 @@ the profile dialog (the two changed UI files).
 
 With PHPUnit, PHPStan (`max`), and Rector all in place, the three-tool tooling initiative
 this section has been tracking is complete.
+
+**Right panel downgrade**: before connecting, the right panel used to browse the local
+filesystem just like the left one (see milestone 3 above for the old behavior this changes),
+and the hint bar always showed `F5`
+Upload / `F6` Download regardless of connection state. Both match vela's own Rust original
+(`ui/statusbar.rs` always shows F5/F6 too) — not a porting bug, but a rough edge worth fixing
+independently: pressing F5/F6 without a connection was a silent no-op (`uploadActive()`/
+`downloadActive()` already return early on `$this->sftp === null`, just with no feedback),
+and two local panels side by side invited pressing them for nothing.
+
+The real fix would be building local-to-local copy — a genuine planned feature (raised
+during this discussion as something the original vela design intended too), but a separate,
+larger piece of work. For now:
+
+- The right panel starts — and returns to, on disconnect — with an empty path and no
+  listing, populated only once `attachSftp()`/`doConnect()` runs. `PanelRenderer`'s title
+  omits the `"— path"` segment entirely for an empty path (`Remote [nicht verbunden]` instead
+  of a stale local path next to it).
+- The old local-loading code is commented out, not deleted, in both `App::__construct()` and
+  `disconnectSftp()` — local-to-local copy would want it back.
+- `F5`/`F6` only appear in the hint bar once connected, exactly like `F3` Disconnect already
+  did — deviating from vela's Rust original deliberately here, since showing a hint for an
+  action that's currently a no-op is worse than not showing it.
+
+Verified: `composer phpstan` (0 errors at `max`), `composer test` (35 tests, 59 assertions),
+and live pty smoke tests confirming both the empty right panel's title and the disconnected
+hint bar (`F1/F2/F4/F7/F8/F9/!/^U/F10`, no F5/F6).
