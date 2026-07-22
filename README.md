@@ -3,7 +3,9 @@
 Feasibility spike: exploring whether [vela](https://github.com/) (a Rust/ratatui dual-panel
 SFTP TUI client) can be rebuilt in PHP using [php-tui/php-tui](https://github.com/php-tui/php-tui).
 
-Status: spike passed (see `bin/spike.php`) — php-tui's terminal backend works reliably on macOS.
+Status: spike passed — php-tui's terminal backend works reliably on macOS. (`bin/spike.php`,
+the minimal script that proved this, was removed once `bin/vela.php` existed and covered the
+same ground far more thoroughly.)
 
 Milestone 1 done: local dual-panel file browser, no SFTP yet. Run with:
 
@@ -43,15 +45,11 @@ Milestone 4 done: `Vela\Ui\TextInput` — php-tui has no built-in text input wid
 shared insert/backspace/delete/move-cursor component (character-indexed, unicode-safe via
 `mb_*`) for every dialog field that needs one, replacing what vela's Rust side reimplements
 per-dialog. `Vela\Ui\TextInputRenderer` draws it as text with an inverted-style block
-cursor, with an optional masked mode for password fields. Try it standalone with:
-
-```
-php bin/textinput-demo.php
-```
-
-`←`/`→`/`Home`/`End` move the cursor, `Backspace`/`Delete` edit, `Tab` toggles masked
-rendering, `Esc` quits. Verified: unit tests (incl. emoji/umlaut mid-string edits) and a
-real pty session for typing/arrows/backspace/delete.
+cursor, with an optional masked mode for password fields. Verified at the time via a
+standalone demo script (`bin/textinput-demo.php` — since removed: milestone 6 built real
+dialogs to host it, and `tests/Ui/TextInputTest.php` now covers the cursor logic, including
+emoji/umlaut mid-string edits, more thoroughly than eyeballing a demo ever did) and a real
+pty session for typing/arrows/backspace/delete.
 
 **Fixed** the php-tui/term quirk noted above (a bare Escape after 2+ arrow-key presses
 could get silently dropped) via a Composer patch — `EventParser::advance()` had a "sticky"
@@ -213,8 +211,8 @@ composer phar
 `dev-package-names` metadata, automatically excludes dev-only dependencies (`humbug/box`
 itself, `cweagans/composer-patches`) without needing a separate `composer install --no-dev`
 pass. Verified by inspecting `box compile --debug`'s file dump: only `bin/vela.php` (the
-declared entry point — `spike.php`/`textinput-demo.php` are not pulled in), `src/`, and the
-four production vendor packages end up in the 906KB, 769-file PHAR; the earlier
+declared entry point — other scripts that used to live in `bin/` weren't pulled in either),
+`src/`, and the four production vendor packages end up in the 906KB, 769-file PHAR; the earlier
 `composer-patches` fixes are included as-is since they'd already been applied to the files
 on disk before packaging. `./vela.phar` runs directly (Box adds a `#!/usr/bin/env php`
 shebang + sets it executable) — no `php` prefix needed, same UX as the Rust binaries.

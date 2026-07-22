@@ -29,8 +29,10 @@ Escape keypress combines with the stranded first one into a recognized
 
 **Reproduction**: two or more arrow-key presses (each an `ESC [ A/B/C/D`
 sequence) followed by a character key, all read in one chunk, then a single
-Escape — reliably lost. Verified with a scripted pty session
-(`expect`) sending exactly that sequence to `bin/textinput-demo.php`.
+Escape — reliably lost. Verified at the time with a scripted pty session
+(`expect`) sending exactly that sequence to `bin/textinput-demo.php`, a
+standalone TextInput demo script since removed (superseded by real dialogs
+in milestone 6 and `tests/Ui/TextInputTest.php`).
 
 **Fix**: compute a new local variable (`$inputAvailable`) fresh from the
 *original*, unmodified `$more` parameter on each iteration, instead of
