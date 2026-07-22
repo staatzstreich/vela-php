@@ -23,12 +23,15 @@
         "cweagans/composer-patches": "^1.7",
         "humbug/box": "^4.7",
         "phpunit/phpunit": "^10.5",
-        "phpstan/phpstan": "^2.0"
+        "phpstan/phpstan": "^2.0",
+        "rector/rector": "^2.5"
     },
     "scripts": {
         "phar": "box compile",
         "test": "phpunit",
-        "phpstan": "phpstan analyse --memory-limit=1G"
+        "phpstan": "phpstan analyse --memory-limit=1G",
+        "rector": "rector process",
+        "rector:dry": "rector process --dry-run"
     },
     "config": {
         "allow-plugins": {

@@ -17,14 +17,11 @@ namespace Vela\Ui;
  */
 final class TextInput
 {
-    private string $value;
-
     private int $cursor;
 
-    public function __construct(string $initial = '', bool $cursorAtEnd = true)
+    public function __construct(private string $value = '', bool $cursorAtEnd = true)
     {
-        $this->value = $initial;
-        $this->cursor = $cursorAtEnd ? mb_strlen($initial) : 0;
+        $this->cursor = $cursorAtEnd ? mb_strlen($this->value) : 0;
     }
 
     public function value(): string

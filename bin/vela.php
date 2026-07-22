@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use PhpTui\Tui\Display\Display;
+
 // php-tui/term (0.3.4) still uses implicit-nullable parameter syntax, which
 // PHP 8.5 flags as deprecated. Not something we control in vendor code.
 error_reporting(E_ALL & ~E_DEPRECATED);
@@ -117,7 +119,7 @@ function findEditor(): ?string
  * exit code is ignored — finishEdit()'s mtime comparison decides whether
  * anything was saved. Mirrors main.rs launch_editor().
  */
-function launchEditor(TermTerminal $terminal, \PhpTui\Tui\Display\Display $display, string $path): void
+function launchEditor(TermTerminal $terminal, Display $display, string $path): void
 {
     $editor = findEditor();
     if ($editor === null) {
@@ -136,7 +138,7 @@ function launchEditor(TermTerminal $terminal, \PhpTui\Tui\Display\Display $displ
  * from looking frozen: called between chunks, it redraws the progress bar
  * at most every 50ms rather than on every single chunk callback.
  */
-function makeTransferTick(\PhpTui\Tui\Display\Display $display, App $app): callable
+function makeTransferTick(Display $display, App $app): callable
 {
     $last = 0.0;
 

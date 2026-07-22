@@ -109,7 +109,7 @@ final class ProfileDialogRenderer
         $form = $dlg->form;
         $visibleFields = array_filter(
             range(0, NewProfileForm::FIELD_COUNT - 1),
-            static fn (int $f): bool => $form->isFieldVisible($f),
+            $form->isFieldVisible(...),
         );
 
         $rowWidgets = [];
@@ -196,9 +196,9 @@ final class ProfileDialogRenderer
         $yesStyle = $form->savePassword
             ? Style::default()->fg($theme->toggleOn)->addModifier(Modifier::BOLD)
             : Style::default()->fg($theme->toggleOff);
-        $noStyle = !$form->savePassword
-            ? Style::default()->fg($theme->toggleOn)->addModifier(Modifier::BOLD)
-            : Style::default()->fg($theme->toggleOff);
+        $noStyle = $form->savePassword
+            ? Style::default()->fg($theme->toggleOff)
+            : Style::default()->fg($theme->toggleOn)->addModifier(Modifier::BOLD);
 
         $spans = [
             new Span('● Ja   ', $yesStyle),

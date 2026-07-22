@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vela\Theme;
 
+use Throwable;
 use Internal\Toml\Toml;
 
 /** Mirrors the persistence helpers at the bottom of vela's src/ui/theme.rs. */
@@ -95,7 +96,7 @@ final class ThemeStore
         }
         try {
             $data = Toml::parseToArray($content);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return null;
         }
 

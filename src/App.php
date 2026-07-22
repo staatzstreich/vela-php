@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vela;
 
+use RuntimeException;
 use PhpTui\Term\Event\CharKeyEvent;
 use PhpTui\Term\Event\CodedKeyEvent;
 use PhpTui\Term\Event\FunctionKeyEvent;
@@ -504,7 +505,7 @@ final class App
                 $old = self::joinLocal($this->left->path, $dlg->original);
                 $new = self::joinLocal($this->left->path, $newName);
                 if (!rename($old, $new)) {
-                    throw new \RuntimeException('Umbenennen fehlgeschlagen');
+                    throw new RuntimeException('Umbenennen fehlgeschlagen');
                 }
                 $this->statusMessage = "Umbenannt: {$dlg->original} → {$newName}";
                 $this->left->loadLocal();
@@ -565,7 +566,7 @@ final class App
         try {
             if ($dlg->side === PanelSide::Left) {
                 if (!mkdir(self::joinLocal($this->left->path, $name))) {
-                    throw new \RuntimeException('mkdir fehlgeschlagen');
+                    throw new RuntimeException('mkdir fehlgeschlagen');
                 }
                 $this->statusMessage = "Verzeichnis erstellt: {$name}";
                 $this->left->loadLocal();
@@ -634,7 +635,7 @@ final class App
                     if ($entry['isDir']) {
                         self::deleteLocalRecursive($path);
                     } elseif (!unlink($path)) {
-                        throw new \RuntimeException("Löschen fehlgeschlagen: {$path}");
+                        throw new RuntimeException("Löschen fehlgeschlagen: {$path}");
                     }
                 } else {
                     if ($this->sftp === null) {

@@ -271,7 +271,7 @@ Not committed (17MB build artifact, platform-specific, regenerate with `bin/buil
 — ignored via `.gitignore` alongside room for future `x86_64`/`universal` variants if
 that's ever revisited.
 
-Testing (in progress) — PHPUnit is now set up as the first of three planned quality tools
+Testing / quality tooling — PHPUnit is set up as the first of three planned quality tools
 (PHPUnit → PHPStan → Rector, being introduced one at a time). Run with:
 
 ```
@@ -417,5 +417,45 @@ identifier php-tui itself uses, so this now matches its strictness exactly). 9 f
   just a type-checker workaround.
 
 All 35 PHPUnit tests, PHPStan `max` (0 errors), and a live pty smoke test (mark-all/unmark-all
-toggle, which the `PanelState` change touches directly) still pass. Third and last of the
-three planned quality tools next: Rector.
+toggle, which the `PanelState` change touches directly) still pass.
+
+**Rector** (third and last of the three planned quality tools) is set up next, config at
+`rector.php` mirroring php-tui's own (`vendor/php-tui/php-tui/rector.php`) as closely as this
+project's layout allows: same `SetList::CODE_QUALITY` + `SetList::TYPE_DECLARATION` +
+`LevelSetList::UP_TO_PHP_81` sets (matching this project's own `composer.json` PHP
+constraint), same `importNames()`/`importShortClasses()`, same skip list. Run with:
+
+```
+composer rector          # applies changes
+composer rector:dry      # preview only, no changes written
+```
+
+Two deliberate deviations from php-tui's config, decided via a dry-run review rather than
+copied blindly — php-tui's config also predates Rector 2.x, so `StaticClosureRector` and
+`StaticArrowFunctionRector` (both explicit rules in its config) had to be dropped outright:
+they're deprecated in Rector 2.5.7 and crash instead of skipping cleanly.
+
+- `EncapsedStringsToSprintfRector` would have rewritten ~23 spots, turning `"Text {$var}"`
+  into `sprintf('Text %s', $var)` across nearly every UI/exception string in this codebase,
+  including all the German status messages. Skipped: this project already uses string
+  interpolation consistently everywhere, and `sprintf()` is strictly more verbose for these
+  short, simple substitutions — this would fight the established style, not improve it.
+- `LocallyCalledStaticMethodToNonStaticRector` (part of `SetList::CODE_QUALITY`, not
+  something php-tui's own config even mentions) would have converted 4 stateless private
+  static helpers (`joinPath`, `parentOf`, `formatPermissions`, `fileEntryFromStat`/
+  `stringKeyed` in `SftpConnection`, `entriesToTransfer`/`expandTildeLocal`/`nextTheme` in
+  `App`) to instance methods called via `$this->`. Skipped: `private static` on a method that
+  doesn't touch object state is a deliberate, existing convention in this codebase, not an
+  oversight — converting it away is a style regression.
+
+What was left after skipping both (5 files) were genuine, no-downside modernizations:
+`importNames()` replacing fully-qualified class references (`\RuntimeException` →
+`RuntimeException` with a `use` import, likewise for `PhpTui\Tui\Display\Display` in
+`bin/vela.php`), constructor-property promotion in `TextInput`, a first-class-callable
+conversion (`static fn (int $f) => $form->isFieldVisible($f)` → `$form->isFieldVisible(...)`),
+and a negated-ternary flip in `ProfileDialogRenderer`. Applied; verified with `composer
+phpstan` (0 errors), `composer test` (35 tests, 59 assertions), and a live pty smoke test of
+the profile dialog (the two changed UI files).
+
+With PHPUnit, PHPStan (`max`), and Rector all in place, the three-tool tooling initiative
+this section has been tracking is complete.
