@@ -527,3 +527,40 @@ ruleset), and live pty smoke tests: marking a file/directory and copying both di
 untouched sibling file), triggering the conflict dialog and confirming an overwrite (verified
 the destination content actually changed), and confirming the hint bar/right-panel state
 across connect/disconnect.
+
+**`App.php` test coverage, Milestone A** (dispatch + navigation + local copy): `App.php`
+(1420 lines) is the largest, most business-logic-dense class in the project, and until now had
+zero automated tests — only manual pty smoke testing. Full coverage was scoped into three
+milestones; this is the first, covering `handleKey()`'s dispatch chain (the trickiest, most
+bug-prone part of the whole class), main-panel navigation/marking, and the local-to-local copy
+feature's `App`-level wiring (previously only tested at the `TransferEngine` level).
+
+Key constraint driving the whole test design: `App::__construct()` unconditionally touches
+real `$_SERVER['HOME']`-based paths (`ThemeStore::ensureThemes()`/`loadThemeChoice()`,
+`ProfileStore::load()`) — every test needs `$_SERVER['HOME']` isolated to a scratch directory,
+same as `ProfileStoreTest`, with no exceptions. Since every new `App*Test` file needs this
+identical three-scratch-root setup (HOME + left-panel dir + right-panel dir), a new shared
+`tests/AppTestCase.php` abstract base class was added — the one deliberate departure from this
+project's "one self-contained test class per file" convention, to avoid the setup logic (and
+any future bugfix to it) being copy-pasted across every `App*Test` file.
+
+New: `tests/AppDispatchTest.php` (F1 help toggle, help-mode input swallowing, Ctrl+U/S/T
+shortcuts that work regardless of dialog state, and the fixed dialog-priority chain — verified
+by constructing two dialog DTOs directly and assigning them to `App`'s public properties the
+same way `handleKey()` itself reads them, entirely SFTP-free), `tests/AppMainKeyTest.php`
+(quit, mark/mark-all incl. the "partial mark still marks the rest" edge case, panel
+navigation, and the profile/shell/tail guard clauses), `tests/AppCopyTest.php` (F5/F6 copy
+end-to-end through `handleKey()`: immediate copy with no conflict, the `CopyConflictDialog`'s
+confirm/cancel paths, and confirming only the destination panel gets reloaded — not the
+source — via a file added to the source directory after the panel's initial load, which stays
+invisible to `$app->left->entries` unless something incorrectly reloads it).
+
+Milestones B (rename/mkdir/delete/edit local branches, permission-fix dialog) and C (shell
+dialog, theme cycling, profile dialog) are explicitly deferred — `App.php`'s size and risk
+profile called for a smaller first slice, confirmed with the user rather than assumed.
+
+Verified: `composer phpstan` (0 errors at `max`), `composer test` (102 tests, 208 assertions),
+`composer rector` (one small improvement applied — inline `\Vela\Fs\FileEntry` docblock
+references replaced with proper `use` imports), and confirmed the real
+`~/.config/vela/profiles.toml` was untouched afterward (checksum unchanged) — the same
+discipline `ProfileStoreTest` already established, now extended to `App`-level tests.
