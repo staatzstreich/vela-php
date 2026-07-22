@@ -115,8 +115,12 @@ final class Render
 
     /**
      * Mirrors statusbar.rs render_hint_bar(): row 0 is the function-key
-     * badge row (F3 Disconnect only when connected, with a danger badge),
-     * row 1 the status message.
+     * badge row, row 1 the status message. Deviates from vela's Rust
+     * original (which always shows F5/F6) by hiding Upload/Download too
+     * while disconnected — same reasoning as the already-conditional F3
+     * Disconnect: showing a hint for an action that's a silent no-op right
+     * now (the right panel has nothing to transfer to/from until connected)
+     * is worse than not showing it.
      */
     private static function buildHintArea(Area $area, App $app, Theme $theme): Widget
     {
@@ -126,14 +130,16 @@ final class Render
             ['F1', 'Help', false],
             ['F2', 'Rename', false],
             ['F4', 'Edit', false],
-            ['F5', 'Upload', false],
-            ['F6', 'Download', false],
-            ['F7', 'MkDir', false],
-            ['F8', 'Delete', false],
-            ['F9', 'Profile', false],
-            ['!', 'Shell', false],
-            ['^U', 'Swap', false],
         ];
+        if ($connected) {
+            $hints[] = ['F5', 'Upload', false];
+            $hints[] = ['F6', 'Download', false];
+        }
+        $hints[] = ['F7', 'MkDir', false];
+        $hints[] = ['F8', 'Delete', false];
+        $hints[] = ['F9', 'Profile', false];
+        $hints[] = ['!', 'Shell', false];
+        $hints[] = ['^U', 'Swap', false];
         if ($connected) {
             $hints[] = ['F3', 'Disconnect', true];
         }
