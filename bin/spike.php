@@ -42,7 +42,7 @@ function restore_terminal(TermTerminal $terminal): void
     $terminal->disableRawMode();
 }
 
-function run(TermTerminal $terminal): void
+function run_spike(TermTerminal $terminal): void
 {
     $backend = PhpTermBackend::new($terminal);
     $display = DisplayBuilder::default($backend)->build();
@@ -77,7 +77,7 @@ function run(TermTerminal $terminal): void
 
 $terminal = setup_terminal();
 try {
-    run($terminal);
+    run_spike($terminal);
 } finally {
     restore_terminal($terminal);
 }

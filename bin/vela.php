@@ -148,7 +148,7 @@ function makeTransferTick(\PhpTui\Tui\Display\Display $display, App $app): calla
     };
 }
 
-function run(TermTerminal $terminal, ?SftpConnection $sftp): void
+function run_vela(TermTerminal $terminal, ?SftpConnection $sftp): void
 {
     $backend = PhpTermBackend::new($terminal);
     $display = DisplayBuilder::default($backend)
@@ -200,7 +200,7 @@ $sftp = connectFromCliFlag();
 
 $terminal = Setup::setup();
 try {
-    run($terminal, $sftp);
+    run_vela($terminal, $sftp);
 } finally {
     Setup::restore($terminal);
 }

@@ -31,7 +31,7 @@ use Vela\Ui\TextInputRenderer;
  * system exists yet (that's milestone 6), so this proves out typing,
  * cursor movement, and masked rendering interactively before either lands.
  */
-function run(TermTerminal $terminal): void
+function run_textinput_demo(TermTerminal $terminal): void
 {
     $backend = PhpTermBackend::new($terminal);
     $display = DisplayBuilder::default($backend)->build();
@@ -85,7 +85,7 @@ function run(TermTerminal $terminal): void
 
 $terminal = Setup::setup();
 try {
-    run($terminal);
+    run_textinput_demo($terminal);
 } finally {
     Setup::restore($terminal);
 }

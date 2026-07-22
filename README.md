@@ -290,3 +290,41 @@ touches a real `~/.config/vela/profiles.toml`), and `tests/Transfer/TransferEngi
 `SftpConnection`, which is `final` with a private constructor, so they stay covered by live
 manual testing instead, same as everywhere else in this project). 35 tests, 58 assertions,
 all passing.
+
+PHPStan (second of the three planned quality tools) is now set up at **level 6** — deliberately
+lower than php-tui's own `level: max` + `strictRules`, since this is a much younger
+codebase; the plan is to ratchet the level up in later steps rather than face hundreds of
+findings at once. Run with:
+
+```
+composer phpstan
+```
+
+Fixed all 11 findings from the first run, each a real issue rather than noise:
+
+- **Three top-level `bin/*.php` scripts each declared a global `function run(...)`** with
+  different signatures — harmless only because they're never `require`'d together in the
+  same process, but PHPStan (analyzing all of `bin/` at once) correctly flagged the
+  resulting cross-file ambiguity. Renamed each uniquely (`run_spike`, `run_textinput_demo`,
+  `run_vela`) to remove the collision at its root instead of just working around the two
+  call sites that happened to get flagged.
+- **A redundant `instanceof` check** in `App::handleProfileListKey()` — PHPStan's flow
+  analysis proved that after two earlier `if`-blocks each `return` on their own branch of a
+  `CharKeyEvent|CodedKeyEvent|FunctionKeyEvent` union, the only type left by that point
+  *is* `FunctionKeyEvent`, making the check dead. Simplified accordingly.
+- **Missing `@return Type[]`/`@param array<string,mixed>` PHPDoc** on several
+  `SftpConnection` methods that return `array`-typed values without saying what's inside —
+  added precise annotations (`FileEntry[]`, `string[]`) throughout.
+- **A dead `!== []` guard** in `tailRemoteFile()` — `explode()` on a non-empty separator
+  can never return an empty array (even `""` explodes to `['']`), so the check was
+  unreachable; removed it and left a comment explaining why.
+- **A real type gap in `authenticate()`**: `PublicKeyLoader::load()` can return either a
+  `PrivateKey` or a `PublicKey` depending on what's actually in the file, but `login()`
+  needs the private half to sign the handshake. A `key_path` accidentally pointing at
+  `id_rsa.pub` would previously have failed confusingly deep inside phpseclib. Added an
+  explicit `instanceof PrivateKey` check with a new `NotAPrivateKeyException` for a clear,
+  actionable error instead.
+
+All 35 PHPUnit tests and a live pty smoke test still pass after the fixes. Next planned
+step: try ratcheting the level up further (`level: max` like php-tui, or a step in between),
+then Rector.

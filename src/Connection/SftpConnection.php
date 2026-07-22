@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vela\Connection;
 
+use phpseclib3\Crypt\Common\PrivateKey;
 use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Net\SFTP;
 use Vela\Config\AuthMethod;
@@ -73,7 +74,11 @@ final class SftpConnection
         });
     }
 
-    /** List the current remote directory. Dirs first, then files, alphabetically. */
+    /**
+     * List the current remote directory. Dirs first, then files, alphabetically.
+     *
+     * @return FileEntry[]
+     */
     public function listDir(): array
     {
         $entries = [];
@@ -109,6 +114,7 @@ final class SftpConnection
      *
      * @throws SftpException if $name contains '/' (path-traversal guard
      *   against a crafted server response, mirrored from the Rust version)
+     * @return FileEntry[]
      */
     public function enterDir(string $name): array
     {
@@ -121,6 +127,7 @@ final class SftpConnection
         return $this->listDir();
     }
 
+    /** @return FileEntry[] */
     public function goUp(): array
     {
         $this->remotePath = self::parentOf($this->remotePath);
@@ -133,6 +140,8 @@ final class SftpConnection
      * Expands a leading `~` to the login home directory resolved at
      * connect time. Uses realpath to canonicalise (resolves symlinks,
      * "..", etc.) and simultaneously verify the path exists.
+     *
+     * @return FileEntry[]
      */
     public function changeToAbsolute(string $raw): array
     {
@@ -198,7 +207,11 @@ final class SftpConnection
         }
     }
 
-    /** Read a remote text file and return its last $maxLines lines. */
+    /**
+     * Read a remote text file and return its last $maxLines lines.
+     *
+     * @return string[]
+     */
     public function tailRemoteFile(string $path, int $maxLines): array
     {
         $content = $this->sftp->get($path);
@@ -206,8 +219,11 @@ final class SftpConnection
             throw new SftpException("Cannot read {$path}");
         }
 
+        // explode() on a non-empty separator always returns at least one
+        // element (even "" explodes to ['']), so there's always a "last
+        // line" to check here — only the trailing-empty-line check matters.
         $lines = explode("\n", $content);
-        if ($lines !== [] && end($lines) === '') {
+        if (end($lines) === '') {
             array_pop($lines);
         }
 
@@ -287,6 +303,7 @@ final class SftpConnection
         return self::joinPath($base, $name);
     }
 
+    /** @param array<string,mixed> $stat */
     private static function fileEntryFromStat(string $name, array $stat): FileEntry
     {
         $isDir = ($stat['type'] ?? null) === self::TYPE_DIRECTORY;
@@ -328,6 +345,15 @@ final class SftpConnection
             }
 
             $key = PublicKeyLoader::load(file_get_contents($keyPath));
+            if (!$key instanceof PrivateKey) {
+                // PublicKeyLoader::load() happily loads a *public* key file
+                // too (it returns whichever half is actually in the file) —
+                // login() needs the private half to sign the handshake, so
+                // a misconfigured key_path pointing at, say, id_rsa.pub
+                // would otherwise only surface as a confusing failure deep
+                // inside phpseclib rather than a clear error here.
+                throw new NotAPrivateKeyException($keyPath);
+            }
             $ok = $sftp->login($profile->user, $key);
         } else {
             $ok = $sftp->login($profile->user, $password ?? '');

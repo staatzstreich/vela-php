@@ -726,7 +726,9 @@ final class App
 
             return;
         }
-        if ($event instanceof FunctionKeyEvent && $event->number === 2) {
+        // At this point $event can only be a FunctionKeyEvent — the other
+        // two members of the union already returned above.
+        if ($event->number === 2) {
             $this->profileEditSelected();
         }
     }
