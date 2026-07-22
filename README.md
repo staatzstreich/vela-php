@@ -292,7 +292,8 @@ all passing.
 PHPStan (second of the three planned quality tools) started at **level 6** and is being
 ratcheted up step by step — deliberately gradual rather than jumping straight to php-tui's
 own `level: max` + `strictRules`, since this is a much younger codebase and each level tends
-to surface a genuinely different category of issue. Currently at **level 8**. Run with:
+to surface a genuinely different category of issue. Currently at **`max`** (all levels, 0-9
+plus PHPStan 2.x's `max` = 10). Run with:
 
 ```
 composer phpstan
@@ -365,4 +366,56 @@ was the same pattern in miniature in `ShellDialogRenderer::build()`: it passed `
 
 All 35 PHPUnit tests, PHPStan level 8 (0 errors), and a live pty smoke test (incl. exercising
 the refactored profile-dialog cluster: open, create, list, delete) still pass after the
-fixes. Next planned step: level 9, then `max` (matching php-tui's own setting), then Rector.
+fixes.
+
+Ratcheted to **level 9** next. 30 findings, all one theme: `mixed`. Level 9 stops trusting
+values PHPStan can't statically prove the type of — `$_SERVER['HOME']`, TOML-parsed data,
+phpseclib return values — even when a nearby `??`/`?:` fallback makes the value obviously a
+string at runtime. Two concrete fixes, then the same pattern repeated everywhere else:
+
+- The five `$_SERVER['HOME'] ?? (getenv('HOME') ?: $fallback)` call sites (`App.php` ×2,
+  `ProfileStore`, `SftpConnection`, `ThemeStore`, `bin/vela.php`) all had the same gap: `??`
+  only excludes `null`, so the combined expression is still typed `mixed`, not `string`.
+  Replaced each with an explicit `is_string($home) && $home !== ''` check.
+- `Profile::fromArray()` blindly cast every TOML field with `(string)`/`(int)` — technically
+  "fixable" by casting away the error, which is exactly what the instructions say not to do,
+  and for good reason: a blind cast on a corrupted field (e.g. a stray `[[sub_table]]` where
+  a plain value belongs) would silently turn an array into the literal string `"Array"`
+  instead of surfacing the problem. Replaced with `stringOr()`/`intOr()`/`nullableString()`
+  helpers that fall back to a default for any non-scalar value instead of coercing it blindly
+  — a real robustness improvement for a hand-editable config file, not just a type-checker
+  appeasement.
+- The same `mixed`-from-untyped-source shape recurred in `bin/vela.php` (`$_SERVER['argv']`
+  → switched to the properly-typed global `$argv`), `SftpConnection` (phpseclib stat/realpath
+  results), `Theme` (`get_object_vars($this)` loses the fact that every property is
+  `AnsiColor`), and the test's own `$_SERVER['HOME']` snapshot.
+
+Ratcheted to **max** next (PHPStan 2.x's `max` is level 10, one past `level: 9` — the same
+identifier php-tui itself uses, so this now matches its strictness exactly). 9 findings:
+
+- More of the same mixed-from-TOML shape, one level deeper: `array_map`/`foreach` over
+  TOML-parsed data down to individual `array<string,mixed>` **entries** (a profile table, an
+  SFTP stat result) still wasn't provably string-keyed, just provably an array. Added a small
+  `stringKeyed()` helper (one per class, mirroring `Profile`'s existing per-class-helper
+  style rather than inventing a shared utility for three call sites) that rebuilds the array
+  while checking each key with `is_string()`, since a blind `is_array()` check alone doesn't
+  prove the key type PHPStan needs.
+- `DeleteDialog`'s constructor wanted `array<int, array{name:string,isDir:bool}>` but got
+  `non-empty-array<array{...}>` from `array_map()` — traced back to `entriesToTransfer()`'s
+  `@return FileEntry[]` annotation, which (surprising, and true of every other `Type[]`
+  annotation in this codebase) only promises `array<int|string, Type>`, **not** `array<int,
+  Type>` — the shorthand doesn't guarantee integer keys the way it reads. Since the array is
+  always built via `$entries[] = ...` (genuinely a list), retyped it — and by the same
+  reasoning, `PanelState::$entries` and all four `SftpConnection` listing methods — to the
+  precise `list<FileEntry>`, which finally satisfied `DeleteDialog` without loosening
+  anything.
+- `PanelState::markAll()`'s `$this->marked[$i] = true` inside a loop couldn't be typed
+  precisely as `array<int,true>` no matter how the loop was shaped (confirmed with PHPStan's
+  own `dumpType()` debug helper: `$i` was `int|string`, not `int`, exactly because of the
+  `Type[]`-annotation gap above). Simplified by building the replacement array in one
+  expression instead of mutating the property key-by-key — a genuine readability win, not
+  just a type-checker workaround.
+
+All 35 PHPUnit tests, PHPStan `max` (0 errors), and a live pty smoke test (mark-all/unmark-all
+toggle, which the `PanelState` change touches directly) still pass. Third and last of the
+three planned quality tools next: Rector.

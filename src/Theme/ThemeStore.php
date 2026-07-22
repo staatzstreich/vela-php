@@ -11,7 +11,8 @@ final class ThemeStore
 {
     public static function configDir(): string
     {
-        $home = $_SERVER['HOME'] ?? (getenv('HOME') ?: '/tmp');
+        $homeEnv = $_SERVER['HOME'] ?? getenv('HOME');
+        $home = is_string($homeEnv) && $homeEnv !== '' ? $homeEnv : '/tmp';
 
         return rtrim($home, '/') . '/.config/vela';
     }
@@ -98,7 +99,18 @@ final class ThemeStore
             return null;
         }
 
-        return Theme::fromArray($data);
+        // A TOML document's root is always a table (string keys), but the
+        // parser's return type doesn't say so — rebuild with that checked
+        // explicitly rather than trusting it blindly.
+        $fields = [];
+        foreach ($data as $key => $value) {
+            if (!is_string($key)) {
+                return null;
+            }
+            $fields[$key] = $value;
+        }
+
+        return Theme::fromArray($fields);
     }
 
     /** Ensure the theme template files exist in ~/.config/vela/themes/. Does not overwrite existing files. */

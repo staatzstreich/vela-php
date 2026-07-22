@@ -1026,7 +1026,8 @@ final class App
             return;
         }
         $this->sftp = null;
-        $home = $_SERVER['HOME'] ?? (getenv('HOME') ?: (getcwd() ?: '/'));
+        $homeEnv = $_SERVER['HOME'] ?? getenv('HOME');
+        $home = is_string($homeEnv) && $homeEnv !== '' ? $homeEnv : (getcwd() ?: '/');
         $this->right = new PanelState($home);
         $this->tryRun(fn () => $this->right->loadLocal());
         $this->statusMessage = 'Getrennt';
@@ -1241,7 +1242,7 @@ final class App
     // Shared helpers
     // -------------------------------------------------------------------
 
-    /** @return FileEntry[] */
+    /** @return list<FileEntry> */
     private static function entriesToTransfer(PanelState $panel): array
     {
         if ($panel->marked === []) {
@@ -1264,7 +1265,7 @@ final class App
         return $entries;
     }
 
-    /** @param FileEntry[] $entries */
+    /** @param list<FileEntry> $entries */
     private function setRemoteListing(SftpConnection $sftp, array $entries): void
     {
         $this->right->path = $sftp->remotePath;
@@ -1296,7 +1297,8 @@ final class App
 
     private static function expandTildeLocal(string $path): string
     {
-        $home = $_SERVER['HOME'] ?? (getenv('HOME') ?: '.');
+        $homeEnv = $_SERVER['HOME'] ?? getenv('HOME');
+        $home = is_string($homeEnv) && $homeEnv !== '' ? $homeEnv : '.';
         if ($path === '~') {
             return $home;
         }

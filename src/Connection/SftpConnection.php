@@ -55,7 +55,7 @@ final class SftpConnection
         self::authenticate($sftp, $profile, $password);
 
         $home = $sftp->realpath('.');
-        if ($home === false) {
+        if (!is_string($home)) {
             throw new SftpException('Could not resolve remote home directory');
         }
 
@@ -77,7 +77,7 @@ final class SftpConnection
     /**
      * List the current remote directory. Dirs first, then files, alphabetically.
      *
-     * @return FileEntry[]
+     * @return list<FileEntry>
      */
     public function listDir(): array
     {
@@ -93,10 +93,10 @@ final class SftpConnection
 
         $loaded = [];
         foreach ($raw as $name => $stat) {
-            if ($name === '.' || $name === '..') {
+            if ($name === '.' || $name === '..' || !is_array($stat)) {
                 continue;
             }
-            $loaded[] = self::fileEntryFromStat($name, $stat);
+            $loaded[] = self::fileEntryFromStat($name, self::stringKeyed($stat));
         }
 
         usort(
@@ -114,7 +114,7 @@ final class SftpConnection
      *
      * @throws SftpException if $name contains '/' (path-traversal guard
      *   against a crafted server response, mirrored from the Rust version)
-     * @return FileEntry[]
+     * @return list<FileEntry>
      */
     public function enterDir(string $name): array
     {
@@ -127,7 +127,7 @@ final class SftpConnection
         return $this->listDir();
     }
 
-    /** @return FileEntry[] */
+    /** @return list<FileEntry> */
     public function goUp(): array
     {
         $this->remotePath = self::parentOf($this->remotePath);
@@ -141,7 +141,7 @@ final class SftpConnection
      * connect time. Uses realpath to canonicalise (resolves symlinks,
      * "..", etc.) and simultaneously verify the path exists.
      *
-     * @return FileEntry[]
+     * @return list<FileEntry>
      */
     public function changeToAbsolute(string $raw): array
     {
@@ -152,7 +152,7 @@ final class SftpConnection
         };
 
         $canonical = $this->sftp->realpath($expanded);
-        if ($canonical === false) {
+        if (!is_string($canonical)) {
             throw new SftpException("Pfad nicht gefunden '{$expanded}'");
         }
 
@@ -250,11 +250,12 @@ final class SftpConnection
     public function remoteFileSize(string $path): ?int
     {
         $stat = $this->sftp->stat($path);
-        if ($stat === false || !isset($stat['size'])) {
+        $size = $stat === false ? null : ($stat['size'] ?? null);
+        if (!is_scalar($size)) {
             return null;
         }
 
-        return (int) $stat['size'];
+        return (int) $size;
     }
 
     /** @return array<string,bool> child name => isDir, excluding "." and ".." */
@@ -267,10 +268,10 @@ final class SftpConnection
 
         $out = [];
         foreach ($raw as $name => $stat) {
-            if ($name === '.' || $name === '..') {
+            if ($name === '.' || $name === '..' || !is_array($stat)) {
                 continue;
             }
-            $out[$name] = ($stat['type'] ?? null) === self::TYPE_DIRECTORY;
+            $out[(string) $name] = ($stat['type'] ?? null) === self::TYPE_DIRECTORY;
         }
 
         return $out;
@@ -315,11 +316,31 @@ final class SftpConnection
 
         return new FileEntry(
             name: $name,
-            size: $isDir ? null : (int) ($stat['size'] ?? 0),
-            modifiedAt: isset($stat['mtime']) ? (int) $stat['mtime'] : null,
+            size: $isDir ? null : (is_scalar($stat['size'] ?? null) ? (int) $stat['size'] : 0),
+            modifiedAt: is_scalar($stat['mtime'] ?? null) ? (int) $stat['mtime'] : null,
             isDir: $isDir,
-            permissions: isset($stat['mode']) ? self::formatPermissions((int) $stat['mode']) : null,
+            permissions: is_scalar($stat['mode'] ?? null) ? self::formatPermissions((int) $stat['mode']) : null,
         );
+    }
+
+    /**
+     * phpseclib's rawlist()/stat() entries always have string keys ('type',
+     * 'size', ...), but their untyped return doesn't say so — rebuild with
+     * that checked explicitly instead of trusting it blindly.
+     *
+     * @param array<mixed,mixed> $data
+     * @return array<string,mixed>
+     */
+    private static function stringKeyed(array $data): array
+    {
+        $out = [];
+        foreach ($data as $key => $value) {
+            if (is_string($key)) {
+                $out[$key] = $value;
+            }
+        }
+
+        return $out;
     }
 
     /** Convert a Unix mode bitmask into a "rwxr-xr-x" style string. */
@@ -492,7 +513,8 @@ final class SftpConnection
 
     private static function expandTilde(string $path): string
     {
-        $home = $_SERVER['HOME'] ?? (getenv('HOME') ?: '.');
+        $homeEnv = $_SERVER['HOME'] ?? getenv('HOME');
+        $home = is_string($homeEnv) && $homeEnv !== '' ? $homeEnv : '.';
         if ($path === '~') {
             return $home;
         }

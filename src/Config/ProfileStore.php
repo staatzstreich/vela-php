@@ -32,11 +32,36 @@ final class ProfileStore
         $data = Toml::parseToArray($content);
 
         $store = new self();
-        foreach ($data['profile'] ?? [] as $entry) {
-            $store->profiles[] = Profile::fromArray($entry);
+        $profileTables = $data['profile'] ?? [];
+        if (is_array($profileTables)) {
+            foreach ($profileTables as $entry) {
+                if (is_array($entry)) {
+                    $store->profiles[] = Profile::fromArray(self::stringKeyed($entry));
+                }
+            }
         }
 
         return $store;
+    }
+
+    /**
+     * TOML tables always have string keys, but the parser's return type
+     * doesn't say so — rebuild with that checked explicitly instead of
+     * trusting it blindly.
+     *
+     * @param array<mixed,mixed> $data
+     * @return array<string,mixed>
+     */
+    private static function stringKeyed(array $data): array
+    {
+        $out = [];
+        foreach ($data as $key => $value) {
+            if (is_string($key)) {
+                $out[$key] = $value;
+            }
+        }
+
+        return $out;
     }
 
     public function save(): void
@@ -83,7 +108,7 @@ final class ProfileStore
     public static function configPath(): string
     {
         $home = $_SERVER['HOME'] ?? getenv('HOME');
-        if (!$home) {
+        if (!is_string($home) || $home === '') {
             throw new HomeDirNotFoundException();
         }
 

@@ -224,6 +224,12 @@ final class Theme
     {
         $out = [];
         foreach (get_object_vars($this) as $field => $color) {
+            // get_object_vars() loses the per-property AnsiColor type (every
+            // property on this class is one, but reflection-based access
+            // can't tell PHPStan that) — narrow it back explicitly.
+            if (!$color instanceof AnsiColor) {
+                continue;
+            }
             $out[self::toSnakeCase($field)] = self::colorName($color);
         }
 
@@ -236,7 +242,8 @@ final class Theme
         $colors = [];
         foreach (self::FIELDS as $field) {
             $key = self::toSnakeCase($field);
-            $color = isset($data[$key]) ? self::parseColor((string) $data[$key]) : null;
+            $rawColor = $data[$key] ?? null;
+            $color = is_scalar($rawColor) ? self::parseColor((string) $rawColor) : null;
             if ($color === null) {
                 return null;
             }

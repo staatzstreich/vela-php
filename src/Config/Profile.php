@@ -26,16 +26,37 @@ final class Profile
     public static function fromArray(array $data): self
     {
         return new self(
-            name: (string) ($data['name'] ?? ''),
-            host: (string) ($data['host'] ?? ''),
-            port: (int) ($data['port'] ?? 22),
-            user: (string) ($data['user'] ?? ''),
-            auth: AuthMethod::from((string) ($data['auth'] ?? 'key')),
-            keyPath: isset($data['key_path']) ? (string) $data['key_path'] : null,
-            remotePath: isset($data['remote_path']) ? (string) $data['remote_path'] : null,
-            localStartPath: isset($data['local_start_path']) ? (string) $data['local_start_path'] : null,
-            hasSavedPassword: (bool) ($data['has_saved_password'] ?? false),
+            name: self::stringOr($data['name'] ?? null, ''),
+            host: self::stringOr($data['host'] ?? null, ''),
+            port: self::intOr($data['port'] ?? null, 22),
+            user: self::stringOr($data['user'] ?? null, ''),
+            auth: AuthMethod::from(self::stringOr($data['auth'] ?? null, 'key')),
+            keyPath: self::nullableString($data['key_path'] ?? null),
+            remotePath: self::nullableString($data['remote_path'] ?? null),
+            localStartPath: self::nullableString($data['local_start_path'] ?? null),
+            hasSavedPassword: is_bool($data['has_saved_password'] ?? null) ? $data['has_saved_password'] : false,
         );
+    }
+
+    /**
+     * Scalar coercion for values coming out of a hand-editable TOML file —
+     * a corrupted/malformed field (e.g. a stray `[[sub_table]]` where a
+     * plain value was expected) falls back to $default instead of a blind
+     * cast silently turning an array into "Array" or 1.
+     */
+    private static function stringOr(mixed $value, string $default): string
+    {
+        return is_scalar($value) ? (string) $value : $default;
+    }
+
+    private static function intOr(mixed $value, int $default): int
+    {
+        return is_scalar($value) ? (int) $value : $default;
+    }
+
+    private static function nullableString(mixed $value): ?string
+    {
+        return is_scalar($value) ? (string) $value : null;
     }
 
     /**

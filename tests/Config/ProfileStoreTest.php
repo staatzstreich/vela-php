@@ -35,7 +35,8 @@ final class ProfileStoreTest extends TestCase
         $this->scratchHome = sys_get_temp_dir() . '/vela-php-test-' . bin2hex(random_bytes(8));
         mkdir($this->scratchHome, 0755, true);
 
-        $this->originalHome = $_SERVER['HOME'] ?? null;
+        $home = $_SERVER['HOME'] ?? null;
+        $this->originalHome = is_string($home) ? $home : null;
         $_SERVER['HOME'] = $this->scratchHome;
     }
 

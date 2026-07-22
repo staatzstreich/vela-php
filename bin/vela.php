@@ -33,8 +33,10 @@ date_default_timezone_set(Format::detectLocalTimezone());
  */
 function connectFromCliFlag(): ?SftpConnection
 {
+    global $argv;
+
     $profileName = null;
-    foreach ($_SERVER['argv'] as $arg) {
+    foreach ($argv as $arg) {
         if (str_starts_with($arg, '--profile=')) {
             $profileName = substr($arg, strlen('--profile='));
         }
@@ -156,7 +158,8 @@ function run_vela(TermTerminal $terminal, ?SftpConnection $sftp): void
         ->build();
 
     $left = getcwd() ?: '/';
-    $right = $_SERVER['HOME'] ?? (getenv('HOME') ?: $left);
+    $home = $_SERVER['HOME'] ?? getenv('HOME');
+    $right = is_string($home) && $home !== '' ? $home : $left;
     $app = new App($left, $right);
 
     if ($sftp !== null) {

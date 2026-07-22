@@ -13,7 +13,7 @@ use RuntimeException;
  */
 final class PanelState
 {
-    /** @var FileEntry[] */
+    /** @var list<FileEntry> */
     public array $entries = [];
 
     public int $selected = 0;
@@ -55,11 +55,15 @@ final class PanelState
 
         if ($allMarked) {
             $this->marked = [];
-        } else {
-            foreach ($eligible as $i) {
-                $this->marked[$i] = true;
-            }
+
+            return;
         }
+
+        $marked = [];
+        foreach ($eligible as $i) {
+            $marked[$i] = true;
+        }
+        $this->marked = $marked;
     }
 
     public function clearMarks(): void
