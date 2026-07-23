@@ -646,3 +646,26 @@ up from 138/297), `composer rector` (no changes needed), and confirmed the real
 `~/.config/vela/profiles.toml` checksum was unchanged afterward — including through the
 profile-dialog tests that genuinely save/delete/persist profiles, just against the isolated
 scratch `HOME`.
+
+**`tests/Ui/FormatTest.php`** (19 tests) closes out the last gap flagged during the App.php
+push: `Format`'s five static helpers (byte-size/date formatting, name truncation, right-
+padding, local-timezone detection) are all pure functions with no filesystem/network
+dependency, cheap to test thoroughly — including edge cases like the byte-size formatter
+clamping at `TB` rather than inventing a larger unit once it runs out of names, and both
+`truncateName()`/`padRight()` counting multibyte characters rather than bytes (a `str_pad()`
+on `"äöü"` would come out two spaces short). `detectLocalTimezone()` is the one exception —
+it reads the real `/etc/localtime` symlink, environment-dependent state this project has no
+business manipulating in a test, so it gets a single "doesn't crash and returns something
+non-empty" smoke check instead of an exact assertion.
+
+With this, every class in the project that's testable without a live SFTP server or the real
+OS keychain now has automated coverage. Remaining gaps are deliberate, permanent architectural
+boundaries, not oversights: `SftpConnection` itself and everything that calls into it (final
+class, private constructor, only buildable via a real network connection — no fake/mock
+possible without a larger interface-extraction refactor that isn't currently justified);
+`Keychain::savePassword()`'s real write path; and the `Ui\*Renderer` classes, which render
+visual widget trees better verified by live pty testing than by asserting on intermediate
+widget objects.
+
+Verified: `composer phpstan` (0 errors at `max`), `composer test` (201 tests, 402 assertions,
+up from 182/379), `composer rector` (no changes needed).
