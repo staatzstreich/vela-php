@@ -604,3 +604,45 @@ before.
 Verified: `composer phpstan` (0 errors at `max`), `composer test` (138 tests, 297 assertions,
 up from 102/208), `composer rector` (no changes needed), and confirmed the real
 `~/.config/vela/profiles.toml` checksum was unchanged afterward.
+
+**`App.php` test coverage, Milestone C** (shell dialog, theme cycling, profile dialog): the
+third and last of the three planned milestones — `App.php` now has full test coverage of
+everything reachable without a live SFTP server.
+
+`tests/AppShellDialogTest.php` (13 tests) covers both dialog phases (typing a command, then
+viewing/scrolling its real output) — `runShellCommand()` runs a genuinely real `proc_open()`
+against the scratch left panel's directory as cwd, no fake/mock needed, unlike anything
+SFTP-shaped. The tail (`t`) guard clauses were already covered in `AppMainKeyTest.php`
+(Milestone A) and aren't duplicated here.
+
+`tests/AppThemeTest.php` (7 tests) confirms the full Ctrl+T cycle, including a detail easy to
+get wrong: `App::__construct()` always calls `ThemeStore::ensureThemes()`, which creates a
+`custom.toml` template alongside `dark.toml`/`light.toml` if missing, and
+`customThemeNames()` only excludes `dark`/`light` by name — so a fresh scratch `HOME` always
+has exactly one custom theme available, making the real cycle four stops long (`Auto → Dark →
+Light → Custom("custom") → Auto`), not three.
+
+`tests/AppProfileDialogTest.php` (24 tests) covers list navigation, the new/edit form's full
+field state machine (incl. the auth-dependent field-skipping that `Tab`/`Shift+Tab` do), and
+confirm-delete — all against a real, HOME-isolated `ProfileStore`, round-tripped through disk
+and reloaded fresh to confirm persistence actually happened, not just in-memory state.
+Connecting to a selected profile (`Enter` in list mode) is out of scope — even for a key-auth
+profile with no saved password, it's a real SFTP connection attempt.
+
+The Keychain question flagged when Milestone A/B were planned came due here: `Keychain` is
+`final`/all-static with no fake/injection point, and — read more carefully this time —
+`applyKeychainSave()`'s delete branch and `handleProfileConfirmDeleteKey()`'s delete call both
+fire unconditionally on *every* ordinary save/delete (`NewProfileForm::$savePassword` defaults
+`false`), not just on password-specific ones. Decided as planned: accept that harmless,
+best-effort shell-out for ordinary save/delete tests (it's exactly what happens on every real
+save/delete too), but every profile built in this file keeps `savePassword` at its default
+`false` — the one thing genuinely not covered is the real `Keychain::savePassword()` write
+path, since a test bug there could leave a real stray credential in the developer's actual
+Keychain, and `Keychain::isSupported()` differs by OS/CI in a way that would make an exact
+status-message assertion machine-dependent.
+
+Verified: `composer phpstan` (0 errors at `max`), `composer test` (182 tests, 379 assertions,
+up from 138/297), `composer rector` (no changes needed), and confirmed the real
+`~/.config/vela/profiles.toml` checksum was unchanged afterward — including through the
+profile-dialog tests that genuinely save/delete/persist profiles, just against the isolated
+scratch `HOME`.
