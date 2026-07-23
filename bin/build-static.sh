@@ -20,14 +20,13 @@ set -euo pipefail
 # results yourself afterwards (spc doesn't do this step either):
 #   lipo -create vela-php-arm64 vela-php-x86_64 -output vela-php-universal
 #
-# Linux support is new and NOT personally verified on real Linux hardware
-# (no Linux test machine available while writing this) — please open an
-# issue/PR if you hit problems. It should work: spc defaults to a
-# musl-linked, fully static binary on Linux (SPC_LIBC=musl is the
-# documented default), which is portable across distros and — unlike a
-# statically-linked glibc — doesn't have glibc's known NSS/getaddrinfo
-# static-linking gotcha, so SFTP host resolution should work out of the
-# box without any extra flags.
+# Linux support verified via Docker (no native Linux hardware needed — see
+# docker/linux-build-test.Dockerfile) on both aarch64 (native under Docker
+# Desktop on Apple Silicon) and x86_64 (QEMU-emulated, ~10x slower to
+# compile but produces a genuinely working binary): both built a real static
+# musl-linked ELF binary (spc's own default on Linux, SPC_LIBC=musl — no
+# glibc NSS/getaddrinfo static-linking gotcha to work around) that rendered
+# the TUI correctly under a real pty session and exited cleanly.
 #
 # spc's own working directory (PHP source, build products, ~2GB) lives
 # outside this repo by design — override SPC_HOME to relocate it.

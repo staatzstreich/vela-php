@@ -288,15 +288,32 @@ built natively on that architecture. If you have both a macOS arm64 and x86_64 m
 want a `vela-universal` like vela's own, build on each with this script, then combine the two
 results yourself: `lipo -create vela-php-arm64 vela-php-x86_64 -output vela-php-universal`.
 
-Linux support is new and **not personally verified on real Linux hardware** (no Linux machine
-available while writing this — please open an issue/PR if you hit problems). It should work:
-per static-php-cli's own `config/env.ini`, Linux builds default to `SPC_LIBC=musl` — a fully
-static, distro-portable binary — and unlike a statically-linked glibc, musl's resolver doesn't
-have the NSS/`getaddrinfo` gotcha that glibc static linking is known for, so SFTP host
-resolution should work out of the box with no extra flags needed. Re-ran the full updated
-script end to end on this machine (macOS arm64) to confirm the refactor didn't regress the
-already-verified path: identical `vela-php-arm64` output, same minimal `libSystem`/`libresolv`
-linkage, same CLI-flag error-path behavior.
+Linux support was initially shipped unverified on real Linux hardware (none available at the
+time) — closed out afterward via Docker rather than left as a standing caveat:
+`docker/linux-build-test.Dockerfile` (a `php:8.4-cli-bookworm` image with the `intl` extension
+and Composer, everything else `spc doctor --auto-fix` installs itself at container-run time,
+same as it does via Homebrew on macOS) reproduces the Linux build without needing native Linux
+hardware at all — Docker's `--platform` flag runs `linux/arm64` natively under Docker Desktop
+on this Apple Silicon Mac, and `linux/amd64` under QEMU emulation (~10x slower to compile,
+~10 min instead of ~1-2, but still a genuinely working binary, not a cross-compile — spc still
+builds natively *inside* the emulated container). Both architectures produced a real static
+musl-linked ELF binary (`file` confirmed "statically linked" / "not a dynamic executable" on
+both), matching `config/env.ini`'s documented `SPC_LIBC=musl` default — and unlike a
+statically-linked glibc, musl's resolver doesn't have the NSS/`getaddrinfo` gotcha glibc
+static linking is known for, so SFTP host resolution needed no extra flags. Verified beyond
+just compiling: the same CLI-flag error path and headless-non-tty boot check used for the
+macOS binary, plus a full live pty session (`expect`) confirming the TUI actually renders
+correctly and exits cleanly — on both `linux-aarch64` and `linux-x86_64`.
+
+Also re-ran the full script end to end on this machine (macOS arm64) to confirm the
+auto-detection refactor didn't regress the already-verified macOS path: identical
+`vela-php-arm64` output, same minimal `libSystem`/`libresolv` linkage, same CLI-flag
+error-path behavior.
+
+Windows support (`spc-windows-x64.exe` exists in static-php-cli's own release matrix, so it's
+plausible) is untested and not yet wired into the OS-detection `case` in `build-static.sh` —
+next up whenever there's real Windows hardware to verify against, rather than guessing at
+Windows-specific build flags blind.
 
 Testing / quality tooling — PHPUnit is set up as the first of three planned quality tools
 (PHPUnit → PHPStan → Rector, being introduced one at a time). Run with:
