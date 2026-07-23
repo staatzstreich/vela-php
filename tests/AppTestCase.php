@@ -6,6 +6,7 @@ namespace Vela\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Vela\App;
+use Vela\Fs\FileEntry;
 
 /**
  * Shared fixture for every App test class. App::__construct() unconditionally
@@ -56,6 +57,27 @@ abstract class AppTestCase extends TestCase
     protected function makeApp(): App
     {
         return new App($this->scratchLeft, $this->scratchRight);
+    }
+
+    /** @param list<FileEntry> $entries */
+    protected static function indexOf(array $entries, string $name): ?int
+    {
+        foreach ($entries as $i => $entry) {
+            if ($entry->name === $name) {
+                return $i;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param list<FileEntry> $entries */
+    protected static function mustIndexOf(array $entries, string $name): int
+    {
+        $index = self::indexOf($entries, $name);
+        self::assertNotNull($index);
+
+        return $index;
     }
 
     private static function freshScratchDir(): string

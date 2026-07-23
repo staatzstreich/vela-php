@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vela\Tests;
 
-use Vela\Fs\FileEntry;
 use PhpTui\Term\Event\CharKeyEvent;
 use PhpTui\Term\Event\CodedKeyEvent;
 use PhpTui\Term\Event\FunctionKeyEvent;
@@ -221,26 +220,5 @@ final class AppCopyTest extends AppTestCase
 
         self::assertNotNull(self::indexOf($app->right->entries, 'a.txt'));
         self::assertNull(self::indexOf($app->left->entries, 'added-after-load.txt'));
-    }
-
-    /** @param list<FileEntry> $entries */
-    private static function indexOf(array $entries, string $name): ?int
-    {
-        foreach ($entries as $i => $entry) {
-            if ($entry->name === $name) {
-                return $i;
-            }
-        }
-
-        return null;
-    }
-
-    /** @param list<FileEntry> $entries */
-    private static function mustIndexOf(array $entries, string $name): int
-    {
-        $index = self::indexOf($entries, $name);
-        self::assertNotNull($index);
-
-        return $index;
     }
 }

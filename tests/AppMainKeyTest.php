@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vela\Tests;
 
-use Vela\Fs\FileEntry;
 use PhpTui\Term\Event\CharKeyEvent;
 use PhpTui\Term\Event\CodedKeyEvent;
 use PhpTui\Term\Event\FunctionKeyEvent;
@@ -251,17 +250,5 @@ final class AppMainKeyTest extends AppTestCase
 
         self::assertSame('Nicht verbunden', $app->statusMessage);
         self::assertNull($app->shellDialog);
-    }
-
-    /** @param list<FileEntry> $entries */
-    private static function indexOf(array $entries, string $name): ?int
-    {
-        foreach ($entries as $i => $entry) {
-            if ($entry->name === $name) {
-                return $i;
-            }
-        }
-
-        return null;
     }
 }

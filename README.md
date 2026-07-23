@@ -564,3 +564,43 @@ Verified: `composer phpstan` (0 errors at `max`), `composer test` (102 tests, 20
 references replaced with proper `use` imports), and confirmed the real
 `~/.config/vela/profiles.toml` was untouched afterward (checksum unchanged) — the same
 discipline `ProfileStoreTest` already established, now extended to `App`-level tests.
+
+**`App.php` test coverage, Milestone B** (rename/mkdir/delete local branches, edit local
+branch, permission-fix dialog): the second of the three planned milestones. `indexOf()`/
+`mustIndexOf()` (small helpers for finding a `FileEntry` by name in a panel's listing, used
+throughout Milestone A's tests) moved from being duplicated in two test files into
+`AppTestCase` itself, now that a third and fourth file need them too.
+
+New: `tests/AppFileOpsTest.php` (24 tests — Rename/Mkdir/Delete's local-side branches: dialog
+open guards incl. the "right panel + disconnected is always a no-op, even though the panel
+itself shows real local files" case shared by all three actions, `TextInput` editing,
+confirm/cancel, and the singular/plural status-message wording for delete). Failure-path
+tests (a botched rename/mkdir) can't rely on a native PHP warning since `phpunit.xml` has
+`failOnWarning="true"` — they use an embedded NUL byte instead, which PHP 8 rejects with a
+thrown `ValueError` rather than a warning (confirmed directly during planning). A forced
+partial-delete-failure test was deliberately not written — every realistic trigger hits the
+same warning problem, and the catch-and-report pattern is already proven by the rename/mkdir
+failure tests.
+
+`tests/AppEditTest.php` (6 tests) surfaced a real, slightly surprising finding while writing
+it: `prepareEdit()` decides local-vs-remote purely from `$this->active === ActivePanel::Left`,
+not from whether the active panel is actually showing local files — so unlike copy/rename/
+mkdir/delete (which all fall back to "no-op, and the panel already only shows local files
+anyway" when disconnected), pressing F4 on the right panel while disconnected is a **silent**
+no-op: no `pendingEdit`, no status message at all. Not fixed here (this pass is test coverage,
+not a UX audit) — just accurately tested and documented in the test's own docblock rather than
+silently assumed away, since the original test-list draft had wrongly assumed it "behaves like
+local too."
+
+`tests/AppPermissionDialogTest.php` (6 tests) covers both the dialog's own key handling
+(`f`/`i`/Esc/anything-else) and `App::__construct()`'s auto-open path — writing a loosely
+permissioned `profiles.toml` into the scratch `HOME` *before* constructing `App` and
+confirming `ProfileStore::load()`'s `UnsafePermissionsException` gets caught and turned
+straight into an open `PermissionFixDialog`, no key press needed.
+
+Milestone C (shell dialog, theme cycling, profile dialog) remains deferred, same reasoning as
+before.
+
+Verified: `composer phpstan` (0 errors at `max`), `composer test` (138 tests, 297 assertions,
+up from 102/208), `composer rector` (no changes needed), and confirmed the real
+`~/.config/vela/profiles.toml` checksum was unchanged afterward.
