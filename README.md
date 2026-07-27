@@ -1,5 +1,19 @@
 # vela-php
 
+## Why vela-php
+
+For me to learn more about claude code i let claude code creating a terminal client, i had winscp in my mind, in rust lang... as i am a beginner in learning rust i thought this could be a nice thing and i called it vela. I am using "vela" at my day job and i does make a realy god job.
+
+Some day i found an awesome [php tui library](https://php-tui.github.io/php-tui/) that is based on [Ratatui](https://ratatui.rs).
+
+Some other day Anthropic me a $100 one-time usage credit for using fable 5 or other models. so i decided to us this to make a complete rewrite of vela using php.
+
+I think the idea was born in my mind because i read an article that "bun" was rewritten from zig to rust within 11 Days... so why not rewrite something that is usefull for me in a language i am using for a long time now.
+
+... I left all of Claude Code's comments as they were... we had a lot of discussions.
+
+## The progress
+
 Feasibility spike: exploring whether [vela](https://github.com/) (a Rust/ratatui dual-panel
 SFTP TUI client) can be rebuilt in PHP using [php-tui/php-tui](https://github.com/php-tui/php-tui).
 
