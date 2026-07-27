@@ -119,6 +119,16 @@ function findEditor(): ?string
  * Suspend the TUI, run the editor on the file, restore the TUI. The editor
  * exit code is ignored — finishEdit()'s mtime comparison decides whether
  * anything was saved. Mirrors main.rs launch_editor().
+ *
+ * Deliberately proc_open() with explicit STDIN/STDOUT/STDERR descriptors
+ * rather than system(): once anything in the process has called
+ * stream_set_blocking() (php-tui/term's SyncTtyEventProvider does, for
+ * non-blocking input polling — and, confirmed by testing, so does calling
+ * it on *any* stream at all, not just STDIN), system()'s own descriptor
+ * inheritance breaks in a way that makes the child editor think its output
+ * isn't a terminal (e.g. vim prints "Warning: Output is not to a
+ * terminal"). proc_open() with an explicit descriptor array reliably
+ * doesn't have this problem.
  */
 function launchEditor(TermTerminal $terminal, Display $display, string $path): void
 {
@@ -128,7 +138,10 @@ function launchEditor(TermTerminal $terminal, Display $display, string $path): v
     }
 
     Setup::restore($terminal);
-    system($editor . ' ' . escapeshellarg($path));
+    $process = proc_open($editor . ' ' . escapeshellarg($path), [0 => STDIN, 1 => STDOUT, 2 => STDERR], $pipes);
+    if (is_resource($process)) {
+        proc_close($process);
+    }
     Setup::resume($terminal);
     $display->clear();
 }

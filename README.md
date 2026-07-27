@@ -797,3 +797,31 @@ any real terminal.
 Verified again after this fix: `composer phpstan` (0 errors), `composer test` (222 tests, 441
 assertions, unchanged — this was a rendering-correctness fix with no new test-visible surface),
 `composer rector` (no changes needed).
+
+**Fixed a real bug in F4/Edit: `system('vim ...')` broke the child editor's terminal detection.**
+Reported after real usage: pressing F4 opened vim with `Vim: Warning: Output is not to a
+terminal` printed first — vim still worked afterward (it falls back to reading `/dev/tty`
+directly), but the warning line and the fact that *some* editor might not have vim's fallback
+made this worth actually fixing rather than shrugging off.
+
+Root cause, isolated with a series of minimal standalone repros (down to zero php-tui/term
+involvement): once `stream_set_blocking()` has been called on *any* stream anywhere in the PHP
+process — not just `STDIN`, not just a tty, a plain scratch file reproduced it just as reliably
+— PHP's `system()` starts handing its child process file descriptors in a way that breaks the
+child's terminal detection, even though `posix_isatty(STDOUT)` still reports `true` from PHP's
+own side the whole time. Since `php-tui/term`'s `SyncTtyEventProvider` calls
+`stream_set_blocking(STDIN, false)` for its non-blocking input-polling loop, *every* `system()`
+call made anywhere after the TUI starts is affected — resetting `STDIN` back to blocking before
+the `system()` call did **not** fix it, ruling out an fd-sharing theory and pointing at something
+inside `system()`'s own internals instead.
+
+Fix: `launchEditor()` (`bin/vela.php`) now uses `proc_open()` with an explicit
+`[0 => STDIN, 1 => STDOUT, 2 => STDERR]` descriptor array instead of `system()` — confirmed via
+the same minimal-repro approach that this alone (no other change) avoids the bug entirely, then
+verified against the real app end-to-end in a real pty session (F4 on a file, vim opens clean,
+no warning, `:q!` returns correctly to the file browser).
+
+Verified: `composer phpstan` (0 errors), `composer test` (222 tests, 441 assertions, unchanged —
+`launchEditor()` isn't covered by automated tests, same standing reasoning as the rest of the
+`$EDITOR` handoff: it needs a real terminal handoff to exercise), `composer rector` (no changes
+needed).
