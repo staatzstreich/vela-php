@@ -74,3 +74,31 @@ time — each redraw is cheap, but a paste of N characters used to mean N
 separate full redraws in a row.
 
 Not yet reported upstream (php-tui/term).
+
+## `php-tui-term-windows-raw-mode.patch`
+
+Adds a new file, `src/RawMode/WindowsRawMode.php` — `php-tui/term` had no
+Windows support at all (its own README: "shouldn't be hard to implement, but
+I don't have windows so..."). `RawMode`'s two other implementations
+(`SttyRawMode`, shell out to `stty`; `TestRawMode`, a fake for tests) have no
+Windows equivalent, so `Terminal::new()`'s default `SttyRawMode::new()` simply
+doesn't work there.
+
+`WindowsRawMode` uses PHP's FFI extension to call `kernel32.dll`'s
+`GetConsoleMode`/`SetConsoleMode` directly, toggling
+`ENABLE_VIRTUAL_TERMINAL_INPUT`/`ENABLE_VIRTUAL_TERMINAL_PROCESSING` so arrow
+keys, function keys etc. arrive as the same ANSI escape sequences
+`EventParser` already parses on POSIX — confirmed by live testing on a real
+Windows 11 VM (PHP 8.5.8 NTS, FFI enabled): every key vela-php uses (F1–F10,
+F12, arrows, Ctrl+C) arrived exactly as expected, and `enable()`/`disable()`/
+`isEnabled()` all behaved correctly.
+
+Not wired up automatically in this project yet — `Terminal::new()` already
+supports constructor injection (`Terminal::new(rawMode: WindowsRawMode::new())`),
+which is how the upstream PR uses it too.
+
+Submitted upstream as [php-tui/term#19](https://github.com/php-tui/term/pull/19),
+not yet merged. This patch exists so vela-php doesn't have to wait for that —
+same `WindowsRawMode.php` content either way, so once the PR lands and a new
+`php-tui/term` release includes it, this patch (and this whole section) can
+just be deleted.

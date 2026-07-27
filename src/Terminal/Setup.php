@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vela\Terminal;
 
 use PhpTui\Term\Actions;
+use PhpTui\Term\RawMode\WindowsRawMode;
 use PhpTui\Term\Terminal as TermTerminal;
 
 /**
@@ -14,7 +15,11 @@ final class Setup
 {
     public static function setup(): TermTerminal
     {
-        $terminal = TermTerminal::new();
+        // SttyRawMode (Terminal::new()'s default) shells out to `stty`,
+        // which doesn't exist on Windows — WindowsRawMode (patched in, see
+        // patches/README.md) uses the Win32 Console API via FFI instead.
+        $rawMode = PHP_OS_FAMILY === 'Windows' ? WindowsRawMode::new() : null;
+        $terminal = TermTerminal::new(rawMode: $rawMode);
         $terminal->enableRawMode();
         $terminal->execute(Actions::cursorHide(), Actions::alternateScreenEnable());
 
