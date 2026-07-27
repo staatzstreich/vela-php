@@ -6,7 +6,7 @@ For me to learn more about claude code i let claude code creating a terminal cli
 
 Some day i found an awesome [php tui library](https://php-tui.github.io/php-tui/) that is based on [Ratatui](https://ratatui.rs).
 
-Some other day Anthropic me a $100 one-time usage credit for using fable 5 or other models. so i decided to us this to make a complete rewrite of vela using php.
+Some other day Anthropic offered me a $100 one-time usage credit for using fable 5 or other models. so i decided to us this to make a complete rewrite of vela using php.
 
 I think the idea was born in my mind because i read an article that "bun" was rewritten from zig to rust within 11 Days... so why not rewrite something that is usefull for me in a language i am using for a long time now.
 
