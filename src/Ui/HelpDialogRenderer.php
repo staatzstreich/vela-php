@@ -41,6 +41,7 @@ final class HelpDialogRenderer
         ['F9 / p', 'Profile verwalten'],
         ['!', 'Shell-Befehl ausführen'],
         ['t', 'Remote-Datei tailen'],
+        ['v', 'Bildvorschau'],
         ['Ctrl+T', 'Theme wechseln'],
         ['Ctrl+U / Ctrl+S', 'Panels tauschen'],
         ['F1', 'Diese Hilfe'],
