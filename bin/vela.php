@@ -16,6 +16,7 @@ use PhpTui\Term\Event\FunctionKeyEvent;
 use PhpTui\Term\Terminal as TermTerminal;
 use PhpTui\Tui\Bridge\PhpTerm\PhpTermBackend;
 use PhpTui\Tui\DisplayBuilder;
+use PhpTui\Tui\Extension\ImageMagick\ImageMagickExtension;
 use Vela\App;
 use Vela\Config\AuthMethod;
 use Vela\Config\ProfileStore;
@@ -157,6 +158,7 @@ function run_vela(TermTerminal $terminal, ?SftpConnection $sftp): void
     $backend = PhpTermBackend::new($terminal);
     $display = DisplayBuilder::default($backend)
         ->addWidgetRenderer(new CenteredBoxRenderer())
+        ->addExtension(new ImageMagickExtension())
         ->build();
 
     $left = getcwd() ?: '/';
@@ -169,7 +171,10 @@ function run_vela(TermTerminal $terminal, ?SftpConnection $sftp): void
     }
 
     while ($app->running) {
-        $display->draw(Render::build($app, $display->viewportArea()));
+        $viewport = $display->viewportArea();
+        $app->viewportCols = $viewport->width;
+        $app->viewportRows = $viewport->height;
+        $display->draw(Render::build($app, $viewport));
 
         $event = $terminal->events()->next();
         if ($event === null) {

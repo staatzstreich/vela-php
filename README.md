@@ -686,3 +686,114 @@ widget objects.
 
 Verified: `composer phpstan` (0 errors at `max`), `composer test` (201 tests, 402 assertions,
 up from 182/379), `composer rector` (no changes needed).
+
+**Image preview (`v` key)**: the image-support idea floated early on, scoped down to what
+actually earns its keep — not a viewer/editor, just a quick scaled preview so you don't have
+to download a remote file, open it externally, and clean up again just to confirm what it is.
+Press `v` on a `png`/`jpg`/`jpeg`/`gif`/`bmp`/`webp` file (local or remote) to open it, `Esc`/`q`
+to close.
+
+Built on php-tui's existing `Extension/ImageMagick` package (`ImageWidget`/`ImageRenderer`/
+`ImagePainter`), registered via `DisplayBuilder::addExtension(new ImageMagickExtension())` in
+`bin/vela.php` — no upstream changes needed, it was already there. Both `ImageRenderer` and
+`ImagePainter` already degrade gracefully when `ext-imagick` isn't installed (a placeholder
+box + label), so that case needed no custom handling from us.
+
+One real finding from exploration, not just cosmetic: `ImagePainter::draw()` iterates every
+source pixel on every render frame (the whole TUI redraws on each key/tick). A typical
+4000×3000 phone photo would mean ~12M pixel-paint calls per frame — the app would visibly
+freeze. So `App::openImagePreview()` always pre-resizes via `Imagick` (`autoOrient()` first,
+for phone-photo EXIF rotation, then a `bestfit` `resizeImage()`) into a scratch temp dir before
+ever handing a path to `ImageWidget`, using a small pure helper (`Fs/ImageScaling::fit()`,
+aspect-ratio-preserving, never upscales) for the arithmetic. Remote files are downloaded to the
+same scratch dir first, mirroring the existing `prepareEdit()`/`finishEdit()` temp-dir
+download+cleanup pattern (F4). A 25 MB size cap (checked against the already-loaded
+`FileEntry::size`, no extra remote stat call) avoids attempting a preview of something clearly
+not meant to be quickly glanced at.
+
+Local vs. remote is decided with the same guard `openRenameDialog()`/`openMkdirDialog()`/
+`openDeleteDialog()` already use (`$side === PanelSide::Right && $this->sftp !== null`),
+deliberately *not* `prepareEdit()`'s simpler-but-quirky `$this->active === ActivePanel::Left`
+check (already documented as a slightly surprising asymmetry in `AppEditTest.php`) — this is a
+new feature with no Rust original to match, so it gets the more correct pattern from the start.
+
+`tests/Fs/ImageScalingTest.php` (8 tests) covers the pure scaling arithmetic with no
+`ext-imagick` dependency at all. `tests/AppImagePreviewTest.php` (13 tests) covers the local
+branch and the dismiss-key matrix; the remote branch (needs a real `SftpConnection`, same
+standing exclusion as everywhere else) is out of scope. Worth noting for anyone touching this
+area later: three of these tests genuinely open a dialog against a real local image, which
+means — whenever `ext-imagick` happens to be installed in the environment running the suite —
+`openImagePreview()` creates a real scratch directory under the system temp dir (deliberately
+outside `AppTestCase`'s isolated scratch roots, matching exactly what happens for a real user).
+Caught this the hard way during manual verification: those three tests originally never closed
+the dialog they opened, silently leaking a `vela-preview-*` temp dir on every run once
+`ext-imagick` was installed locally to do the real visual test below. Fixed by having each of
+them close via `Esc` at the end, exercising the real cleanup code path instead of just trusting
+it.
+
+Manually verified end-to-end in a real pty session (after installing `ext-imagick` locally via
+`brew install imagemagick && pecl install imagick`, not present by default on this machine): a
+real PNG renders as genuine truecolor pixel data inside the dialog (confirmed by inspecting the
+raw ANSI output for `ESC[38;2;r;g;bm` truecolor codes matching the source image's actual
+colors, not a placeholder), the dialog title and `Schließen` hint render correctly, `Esc`/`q`
+both close and clean up (no leftover temp dir afterward), and a corrupted/invalid image file
+fails gracefully with a status message (`Vorschau fehlgeschlagen: improper image header ...`)
+instead of crashing.
+
+Packaging: `composer.json` gained a `suggest` entry for `ext-imagick` (not `require` — the app
+works fully without it). `bin/build-static.sh`'s `EXTENSIONS` list gained `imagick`, confirmed
+supported by `static-php-cli` including the `micro` SAPI this project's build already uses
+(`spc dev:extensions`) — though it drags in a long static dependency chain (libjpeg, libpng,
+libwebp, libjxl, freetype, libtiff, libde265, libaom, libheif, imagemagick itself), so expect a
+noticeably longer build and larger binary than before.
+
+Verified: `composer phpstan` (0 errors at `max`, including with `ext-imagick` actually
+installed — PHPStan 2.x ships its own `Imagick` stubs, no `@phpstan-ignore` treatment needed
+unlike the FFI/Windows work over in `php-tui/term`), `composer test` (222 tests, 441 assertions,
+up from 201/402), `composer rector` (no changes needed).
+
+**Image preview follow-up: fixed regular stripes/"tiling" on real photos.** The synthetic test
+image used above (a flat-color drawing) didn't reveal it, but real photos (~1024px wide) showed
+regularly-spaced blank vertical stripes, and one looked visibly "tiled." Root cause, confirmed
+by reading php-tui's own rendering code and reconstructing a real render frame from a captured
+Buffer for inspection: `Painter::getPoint()` (`vendor/php-tui/php-tui/src/Canvas/Painter.php`)
+maps each source image pixel onto the terminal's render grid via simple per-axis linear scaling
+with no interpolation, and `ImagePainter::draw()` only iterates *source* pixels — so whenever
+the source image is *smaller* than the actual grid resolution in a given axis (upsampling),
+some target columns/rows are never hit by any source pixel and stay blank. The fixed
+`PREVIEW_MAX_WIDTH`/`PREVIEW_MAX_HEIGHT` constants (160×100) from the first pass were smaller
+than the real dialog area on any reasonably wide terminal, triggering exactly this on the
+horizontal axis.
+
+Fix: `openImagePreview()` now reads `App::$viewportCols`/`$viewportRows` (refreshed once per
+frame by the main loop from `Display::viewportArea()`) and computes a resize target that
+mirrors `ImagePreviewDialogRenderer`'s actual layout (`CenteredBox(70, 70)`, minus block
+borders, minus the 1-row hint line) via a new `previewTargetDimensions()` method, capped at an
+absolute 400×300 ceiling regardless of viewport size to keep per-frame pixel iteration bounded.
+
+A second, non-obvious finding while fixing this: `Painter::getPoint()` stretches the image to
+fill the *entire* given grid resolution regardless of the source image's own aspect ratio —
+there's no letterboxing at the canvas level, ever. That means resizing our preview to exactly
+match the target dimensions via a plain aspect-preserving "contain" resize doesn't actually
+prevent distortion (the canvas would still stretch it to fill the box), and if the box's aspect
+ratio doesn't match the photo's, `ImageScaling::fit()` alone would still leave one axis smaller
+than the grid — reintroducing the exact same gap bug on that axis. Fixed by doing the
+letterboxing ourselves before handing the file to `ImageWidget`: resize with `ImageScaling::fit()`
+(aspect-preserving, as before) then `Imagick::extentImage()` to pad out to the exact target
+dimensions with a solid black fill, centered — the standard "contain and pad" pattern. This
+avoids the gap bug *and* avoids distortion, verified against both real test photos (a square
+1:1 image and a portrait 2:3 one) at the exact wide-terminal size that originally reproduced
+the bug.
+
+Verification for this fix didn't rely on eyeballing a live pty session: `Display::buffer()`
+gives direct access to the rendered `Buffer` object before the terminal-write step, so a
+scratch script could render `ImagePreviewDialogRenderer::build()`'s widget tree straight into a
+fixed-size `Buffer` and inspect every cell's actual `RgbColor` — reconstructing the rendered
+frame as a real image for visual comparison without needing a pty, ANSI parsing, or a live
+terminal at all. This is how the bug was reliably reproduced on demand (confirming the exact
+stripe pattern the report described) and how the fix was confirmed clean, both before touching
+any real terminal.
+
+Verified again after this fix: `composer phpstan` (0 errors), `composer test` (222 tests, 441
+assertions, unchanged — this was a rendering-correctness fix with no new test-visible surface),
+`composer rector` (no changes needed).

@@ -3,10 +3,18 @@ set -euo pipefail
 
 # Builds a standalone, self-contained vela-php binary via static-php-cli
 # (spc): a full PHP 8.5 interpreter with mbstring, ctype, openssl, gmp,
-# sodium, phar, zlib and filter statically linked in, combined with our own
-# vela.phar payload into a single self-contained executable that needs no
-# PHP installation on the target machine — same idea as vela's own
+# sodium, phar, zlib, filter and imagick statically linked in, combined with
+# our own vela.phar payload into a single self-contained executable that
+# needs no PHP installation on the target machine — same idea as vela's own
 # vela-arm64/vela-x86_64/vela-universal Rust binaries.
+#
+# imagick (for the image-preview 'v' key) is confirmed supported by spc,
+# including the micro SAPI this script builds (`spc dev:extensions`), but it
+# drags in a long static dependency chain (libjpeg, libpng, libwebp, libjxl,
+# freetype, libtiff, libde265, libaom, libheif, imagemagick itself), so
+# expect a noticeably longer build and a larger binary than before this
+# extension was added. The app works fine without it either way — php-tui
+# shows a graceful placeholder when Imagick isn't available.
 #
 # Auto-detects the host OS/architecture it's run ON, so this script is
 # meant to be cloned and run natively on whichever machine you have —
@@ -35,7 +43,7 @@ set -euo pipefail
 
 SPC_HOME="${SPC_HOME:-$HOME/.local/share/vela-php-spc}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-EXTENSIONS="mbstring,ctype,openssl,gmp,sodium,phar,zlib,filter"
+EXTENSIONS="mbstring,ctype,openssl,gmp,sodium,phar,zlib,filter,imagick"
 
 HOST_OS="$(uname -s)"
 HOST_ARCH="$(uname -m)"

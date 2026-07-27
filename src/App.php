@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vela;
 
+use Imagick;
+use ImagickPixel;
 use RuntimeException;
 use PhpTui\Term\Event\CharKeyEvent;
 use PhpTui\Term\Event\CodedKeyEvent;
@@ -22,6 +24,7 @@ use Vela\Dialog\CopyConflictDialog;
 use Vela\Dialog\DeleteDialog;
 use Vela\Dialog\EditRequest;
 use Vela\Dialog\HostKeyDialog;
+use Vela\Dialog\ImagePreviewDialog;
 use Vela\Dialog\MkdirDialog;
 use Vela\Dialog\NewProfileForm;
 use Vela\Dialog\PanelSide;
@@ -32,6 +35,7 @@ use Vela\Dialog\ProfileDialogMode;
 use Vela\Dialog\RenameDialog;
 use Vela\Dialog\ShellDialog;
 use Vela\Fs\FileEntry;
+use Vela\Fs\ImageScaling;
 use Vela\Fs\PanelState;
 use Vela\Transfer\TransferEngine;
 use Vela\Transfer\TransferProgress;
@@ -82,6 +86,8 @@ final class App
 
     public ?ProfileDialog $profileDialog = null;
 
+    public ?ImagePreviewDialog $imagePreviewDialog = null;
+
     public ThemeChoice $themeChoice;
 
     /** Purely visual — which physical side shows the local vs. remote panel. The data model is unchanged. */
@@ -89,6 +95,22 @@ final class App
 
     /** Set by F4; the main loop takes it, suspends the TUI, runs $EDITOR, then calls finishEdit(). */
     public ?EditRequest $pendingEdit = null;
+
+    /**
+     * Refreshed once per frame by the main loop from Display::viewportArea()
+     * — openImagePreview() needs the real terminal size to pick a resize
+     * target that's never smaller than the dialog's actual render
+     * resolution. Defaults matter for anything that never sets these (tests,
+     * or before the first frame): php-tui's Canvas/ImagePainter has no
+     * interpolation, so resizing a source image *smaller* than the grid it's
+     * painted onto leaves regularly-spaced unpainted target columns/rows
+     * (visible as blank/white stripes, or a "tiled" look on patterned
+     * images) — confirmed by reconstructing a real preview render frame from
+     * its raw ANSI output during manual testing.
+     */
+    public int $viewportCols = 80;
+
+    public int $viewportRows = 24;
 
     public function __construct(string $leftPath, string $rightPath)
     {
@@ -206,6 +228,8 @@ final class App
             $this->handleShellDialogKey($event, $this->shellDialog);
         } elseif ($this->profileDialog !== null) {
             $this->handleProfileDialogKey($event, $this->profileDialog);
+        } elseif ($this->imagePreviewDialog !== null) {
+            $this->handleImagePreviewDialogKey($event, $this->imagePreviewDialog);
         } else {
             $this->handleMainKey($event, $onTransferTick);
         }
@@ -221,6 +245,7 @@ final class App
                 '!' => $this->openShellDialog(),
                 't' => $this->openTailDialog(),
                 'p' => $this->openProfileDialog(),
+                'v' => $this->openImagePreview(),
                 default => null,
             };
 
@@ -548,6 +573,185 @@ final class App
         if ($req->tempDir !== null) {
             @rmdir($req->tempDir);
         }
+    }
+
+    // -------------------------------------------------------------------
+    // Image Preview (v) — no Rust original, see ImagePreviewDialog's docblock
+    // -------------------------------------------------------------------
+
+    private const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'];
+
+    private const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
+
+    // Absolute ceiling regardless of viewport size — keeps ImagePainter's
+    // per-frame pixel iteration bounded even on an unusually wide terminal.
+    private const PREVIEW_ABSOLUTE_MAX_WIDTH = 400;
+
+    private const PREVIEW_ABSOLUTE_MAX_HEIGHT = 300;
+
+    /**
+     * Downloads (if remote) and, when ext-imagick is available, resizes the
+     * selected image into a scratch temp dir before handing its path to
+     * ImagePreviewDialog. The resize isn't just cosmetic: php-tui's
+     * ImagePainter iterates every source pixel on every render frame, so an
+     * unresized multi-megapixel photo would visibly freeze the app. Without
+     * ext-imagick, php-tui's own ImageRenderer/ImagePainter already show a
+     * graceful placeholder, so we skip resizing entirely and pass the
+     * original/downloaded path straight through.
+     */
+    private function openImagePreview(): void
+    {
+        $panel = $this->activePanel();
+        $entry = $panel->entries[$panel->selected] ?? null;
+        if ($entry === null || $entry->isDir || $entry->name === '..') {
+            $this->statusMessage = 'Kein bearbeitbarer Eintrag ausgewählt';
+
+            return;
+        }
+
+        $ext = strtolower(pathinfo($entry->name, PATHINFO_EXTENSION));
+        if (!in_array($ext, self::IMAGE_EXTENSIONS, true)) {
+            $this->statusMessage = 'Kein bearbeitbarer Eintrag ausgewählt';
+
+            return;
+        }
+
+        if ($entry->size !== null && $entry->size > self::MAX_PREVIEW_BYTES) {
+            $this->statusMessage = 'Datei zu groß für Vorschau (>25 MB)';
+
+            return;
+        }
+
+        $side = $this->active === ActivePanel::Left ? PanelSide::Left : PanelSide::Right;
+        $isRemote = $side === PanelSide::Right && $this->sftp !== null;
+
+        $tempDir = null;
+        $sourcePath = self::joinLocal($panel->path, $entry->name);
+
+        if ($isRemote) {
+            $sftp = $this->sftp;
+            $remotePath = $sftp->joinRemotePath($this->right->path, $entry->name);
+            $tempDir = sys_get_temp_dir() . '/vela-preview-' . bin2hex(random_bytes(6));
+            if (!mkdir($tempDir, 0700)) {
+                $this->statusMessage = 'Temp-Verzeichnis konnte nicht erstellt werden';
+
+                return;
+            }
+            $sourcePath = $tempDir . '/' . $entry->name;
+            try {
+                $sftp->getFile($remotePath, $sourcePath, static function (): void {
+                });
+            } catch (Throwable $e) {
+                $this->statusMessage = 'Download für Vorschau fehlgeschlagen: ' . $e->getMessage();
+                @unlink($sourcePath);
+                @rmdir($tempDir);
+
+                return;
+            }
+        }
+
+        $previewPath = $sourcePath;
+
+        if (class_exists(Imagick::class)) {
+            try {
+                $image = new Imagick($sourcePath);
+                $image->autoOrient();
+                $geo = $image->getImageGeometry();
+                [$maxWidth, $maxHeight] = $this->previewTargetDimensions();
+                $target = ImageScaling::fit($geo['width'], $geo['height'], $maxWidth, $maxHeight);
+                $image->resizeImage($target['width'], $target['height'], Imagick::FILTER_LANCZOS, 1, true);
+
+                // Pad out to exactly maxWidth x maxHeight (letterboxed, not
+                // stretched): php-tui's Canvas/ImagePainter maps the image's
+                // own pixel dimensions onto the render grid by independent
+                // linear scaling on each axis with no interpolation, so
+                // handing it anything *smaller* than the actual grid
+                // resolution leaves regularly-spaced unpainted target
+                // columns/rows (the "vertical stripes"/"tiled" bug). Since
+                // that mapping also has no notion of aspect ratio (it always
+                // stretches to fill whatever resolution it's given), a plain
+                // aspect-preserving resize alone would still be smaller than
+                // the grid on whichever axis doesn't match the box's aspect
+                // ratio. Padding with solid color to the exact target size
+                // avoids both the gap bug and unwanted stretching.
+                $image->setImageBackgroundColor(new ImagickPixel('black'));
+                $offsetX = (int) (($maxWidth - $image->getImageWidth()) / 2);
+                $offsetY = (int) (($maxHeight - $image->getImageHeight()) / 2);
+                $image->extentImage($maxWidth, $maxHeight, -$offsetX, -$offsetY);
+
+                if ($tempDir === null) {
+                    $tempDir = sys_get_temp_dir() . '/vela-preview-' . bin2hex(random_bytes(6));
+                    if (!mkdir($tempDir, 0700)) {
+                        $this->statusMessage = 'Temp-Verzeichnis konnte nicht erstellt werden';
+
+                        return;
+                    }
+                }
+                $previewPath = $tempDir . '/preview-' . $entry->name;
+                $image->writeImage($previewPath);
+                $image->clear();
+                $image->destroy();
+            } catch (Throwable $e) {
+                $this->statusMessage = 'Vorschau fehlgeschlagen: ' . $e->getMessage();
+                if ($isRemote) {
+                    @unlink($sourcePath);
+                }
+                if ($tempDir !== null) {
+                    @rmdir($tempDir);
+                }
+
+                return;
+            }
+        }
+
+        $this->imagePreviewDialog = new ImagePreviewDialog($entry->name, $previewPath, $tempDir);
+    }
+
+    /**
+     * Mirrors ImagePreviewDialogRenderer's actual layout (CenteredBox(70, 70)
+     * -> bordered Block -> a 1-row hint line under the image), so the resize
+     * target is never smaller than what the dialog will actually render
+     * into — see the ImagePainter upsampling-gap note on $viewportCols.
+     * Marker::HalfBlock doubles vertical resolution relative to terminal
+     * rows, hence *2 on the height.
+     *
+     * @return array{0:int,1:int}
+     */
+    private function previewTargetDimensions(): array
+    {
+        $dialogWidth = (int) floor($this->viewportCols * 0.7);
+        $dialogHeight = (int) floor($this->viewportRows * 0.7);
+        $innerWidth = max(1, $dialogWidth - 2);
+        $innerHeight = max(1, $dialogHeight - 2 - 1);
+
+        return [
+            min(self::PREVIEW_ABSOLUTE_MAX_WIDTH, $innerWidth),
+            min(self::PREVIEW_ABSOLUTE_MAX_HEIGHT, $innerHeight * 2),
+        ];
+    }
+
+    private function handleImagePreviewDialogKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event, ImagePreviewDialog $dlg): void
+    {
+        if ($event instanceof CharKeyEvent && ($event->char === 'q' || $event->char === 'Q')) {
+            $this->closeImagePreview($dlg);
+
+            return;
+        }
+        if ($event instanceof CodedKeyEvent && $event->code === KeyCode::Esc) {
+            $this->closeImagePreview($dlg);
+        }
+    }
+
+    private function closeImagePreview(ImagePreviewDialog $dlg): void
+    {
+        $this->imagePreviewDialog = null;
+        if ($dlg->tempDir === null) {
+            return;
+        }
+        foreach (glob($dlg->tempDir . '/*') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($dlg->tempDir);
     }
 
     // -------------------------------------------------------------------

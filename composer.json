@@ -26,6 +26,9 @@
         "phpstan/phpstan": "^2.0",
         "rector/rector": "^2.5"
     },
+    "suggest": {
+        "ext-imagick": "Enables image preview (v key); falls back to a placeholder without it"
+    },
     "scripts": {
         "phar": "box compile",
         "test": "phpunit",

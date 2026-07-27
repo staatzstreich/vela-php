@@ -63,6 +63,9 @@ final class Render
         if ($app->hostKeyDialog !== null) {
             $layers[] = HostKeyDialogRenderer::build($app->hostKeyDialog, $theme);
         }
+        if ($app->imagePreviewDialog !== null) {
+            $layers[] = ImagePreviewDialogRenderer::build($app->imagePreviewDialog, $theme);
+        }
         if ($app->helpVisible) {
             $layers[] = HelpDialogRenderer::build($theme);
         }
