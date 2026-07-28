@@ -96,7 +96,10 @@ final class SftpConnection
             if ($name === '.' || $name === '..' || !is_array($stat)) {
                 continue;
             }
-            $loaded[] = self::fileEntryFromStat($name, self::stringKeyed($stat));
+            // rawlist()'s array keys are filenames, but PHP silently casts
+            // purely-numeric string keys (e.g. a folder named "2026") to
+            // int — fileEntryFromStat() is strictly typed, so cast back.
+            $loaded[] = self::fileEntryFromStat((string) $name, self::stringKeyed($stat));
         }
 
         usort(
