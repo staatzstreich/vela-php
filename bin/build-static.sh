@@ -3,10 +3,13 @@ set -euo pipefail
 
 # Builds a standalone, self-contained vela-php binary via static-php-cli
 # (spc): a full PHP 8.5 interpreter with mbstring, ctype, openssl, gmp,
-# sodium, phar, zlib, filter and imagick statically linked in, combined with
-# our own vela.phar payload into a single self-contained executable that
-# needs no PHP installation on the target machine — same idea as vela's own
-# vela-arm64/vela-x86_64/vela-universal Rust binaries.
+# sodium, phar, zlib, filter, imagick, json and curl statically linked in,
+# combined with our own vela.phar payload into a single self-contained
+# executable that needs no PHP installation on the target machine — same
+# idea as vela's own vela-arm64/vela-x86_64/vela-universal Rust binaries.
+# (json/curl are only there so this script's own build step can run
+# composer.phar/box through spc's static php CLI, see below — harmless
+# extras in the shipped binary too.)
 #
 # imagick (for the image-preview 'v' key) is confirmed supported by spc,
 # including the micro SAPI this script builds (`spc dev:extensions`), but it
@@ -15,6 +18,14 @@ set -euo pipefail
 # expect a noticeably longer build and a larger binary than before this
 # extension was added. The app works fine without it either way — php-tui
 # shows a graceful placeholder when Imagick isn't available.
+#
+# No host PHP or Composer required (not even via Homebrew): spc itself
+# ships as a self-contained static binary, and this script uses spc to
+# build its own static `php` CLI SAPI too, then runs a portable
+# composer.phar and vendor/bin/box directly through that binary. Every
+# PHP-shaped tool this script touches (spc, php, composer, box) is
+# either downloaded as a standalone executable/phar or built by spc —
+# nothing is resolved via $PATH.
 #
 # Auto-detects the host OS/architecture it's run ON, so this script is
 # meant to be cloned and run natively on whichever machine you have —
@@ -43,7 +54,16 @@ set -euo pipefail
 
 SPC_HOME="${SPC_HOME:-$HOME/.local/share/vela-php-spc}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-EXTENSIONS="mbstring,ctype,openssl,gmp,sodium,phar,zlib,filter,imagick"
+EXTENSIONS="mbstring,ctype,openssl,gmp,sodium,phar,zlib,filter,imagick,json,curl,tokenizer,dom,xml,xmlwriter,libxml"
+# json/curl/tokenizer/dom/xml aren't needed by vela-php itself, but are
+# needed to run composer.phar and vendor/bin/box (see below) through spc's
+# static `php` CLI SAPI: json is a hard Composer requirement, curl lets
+# Composer download packages without falling back to (slower,
+# proxy-unfriendly) php:// stream wrappers, and tokenizer/dom/xml are
+# required by our require-dev packages (rector needs tokenizer, phpunit
+# needs dom) which composer install (deliberately run WITH dev deps, see
+# below) has to resolve.
+COMPOSER_PHAR="$SPC_HOME/composer.phar"
 
 HOST_OS="$(uname -s)"
 HOST_ARCH="$(uname -m)"
@@ -84,12 +104,32 @@ echo "==> Checking build prerequisites (spc doctor)"
 echo "==> Downloading PHP source + library sources for: $EXTENSIONS"
 ./spc download --for-extensions="$EXTENSIONS" --with-php=8.5
 
-echo "==> Building static PHP + micro SAPI (this compiles PHP from source, ~3 min)"
-./spc build "$EXTENSIONS" --build-micro --with-micro-fake-cli
+echo "==> Building static PHP CLI + micro SAPI (this compiles PHP from source, ~3 min)"
+./spc build "$EXTENSIONS" --build-cli --build-micro --with-micro-fake-cli
+STATIC_PHP="$SPC_HOME/buildroot/bin/php"
+
+if [ ! -f "$COMPOSER_PHAR" ]; then
+    echo "==> Downloading a portable composer.phar"
+    curl -fsSL -o "$COMPOSER_PHAR" "https://getcomposer.org/composer.phar"
+fi
+
+# box compile does its own separate "is Composer available" check
+# (ComposerProcessFactory) and wants a single executable path for it, not
+# a two-part "php composer.phar" invocation — so give it a tiny wrapper
+# script instead of trying to make composer.phar itself executable.
+COMPOSER_BIN="$SPC_HOME/composer-bin.sh"
+cat > "$COMPOSER_BIN" <<EOF
+#!/bin/sh
+exec "$STATIC_PHP" "$COMPOSER_PHAR" "\$@"
+EOF
+chmod +x "$COMPOSER_BIN"
+
+echo "==> Installing composer dependencies (applies our patches/ via cweagans/composer-patches)"
+cd "$PROJECT_DIR"
+"$STATIC_PHP" "$COMPOSER_PHAR" install
 
 echo "==> Rebuilding vela.phar"
-cd "$PROJECT_DIR"
-composer phar
+"$STATIC_PHP" vendor/bin/box compile --composer-bin="$COMPOSER_BIN"
 
 echo "==> Combining micro.sfx + vela.phar into a standalone binary"
 "$SPC_HOME/spc" micro:combine vela.phar -M "$SPC_HOME/buildroot/bin/micro.sfx" -O "$OUTPUT_NAME"
