@@ -47,6 +47,9 @@
                 "Fix sticky $more flag in EventParser::advance() that can strand a trailing lone ESC in the buffer indefinitely (https://github.com/php-tui/term/blob/main/src/EventParser.php) - see patches/README.md": "patches/php-tui-term-event-parser-more-flag.patch",
                 "Batch AnsiPainter::paint() into one write() per frame instead of one per queued action, cutting per-frame syscall count from potentially thousands to one - see patches/README.md": "patches/php-tui-term-ansipainter-buffered-write.patch",
                 "Add WindowsRawMode (Win32 Console API via FFI) so RawMode works on Windows - upstream PR https://github.com/php-tui/term/pull/19, not yet merged - see patches/README.md": "patches/php-tui-term-windows-raw-mode.patch"
+            },
+            "php-tui/php-tui": {
+                "Fix ParagraphRenderer clobbering span-level styles (e.g. hint-bar key badges) with the widget-level style instead of the other way around - see patches/README.md": "patches/php-tui-paragraph-style-precedence.patch"
             }
         }
     }

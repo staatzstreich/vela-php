@@ -1,0 +1,10 @@
+--- a/src/Extension/Core/Widget/ParagraphRenderer.php	2026-07-30 15:57:08
++++ b/src/Extension/Core/Widget/ParagraphRenderer.php	2026-07-30 15:57:59
+@@ -32,7 +32,6 @@
+             return;
+         }
+ 
+-        $widget->text->patchStyle($widget->style);
+         $style = $widget->style;
+         $styled = array_map(static function (Line $line) use ($style, $widget): array {
+             $graphemes = array_reduce($line->spans, static function (array $ac, Span $span) use ($style): array {

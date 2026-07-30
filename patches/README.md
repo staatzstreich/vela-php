@@ -102,3 +102,46 @@ not yet merged. This patch exists so vela-php doesn't have to wait for that —
 same `WindowsRawMode.php` content either way, so once the PR lands and a new
 `php-tui/term` release includes it, this patch (and this whole section) can
 just be deleted.
+
+## `php-tui-paragraph-style-precedence.patch`
+
+Fixes a bug in `php-tui/php-tui`'s `ParagraphRenderer::render()`
+(`src/Extension/Core/Widget/ParagraphRenderer.php`): a widget's own
+paragraph-level style (set via `->style(...)`) silently overwrote each
+span's own explicitly-set style fields, instead of the other way around.
+
+**Symptom**: found via real-machine testing in iTerm2 — the hint bar's
+function-key badges (`F1`, `F2`, …) were completely invisible, while their
+labels ("Help", "Rename", …) rendered fine. The hint-bar `ParagraphWidget`
+sets a widget-level `bg` (the bar's own background) *and* each badge `Span`
+sets its own `bg`/`fg` (the badge color) — the widget-level `bg` clobbered
+the badge's `bg`, but left its `fg` (`White`) untouched, so badges rendered
+as white text on a white background.
+
+**Root cause**: `render()` had this line before doing anything else with the
+text:
+```php
+$widget->text->patchStyle($widget->style);
+```
+This mutates every span's own `Style` via `Span::patchStyle()`, which
+computes `$this->style->patchStyle($style)` — and `Style::patchStyle()`'s
+own contract is "the argument's set fields win". Since the *widget's* style
+is passed as the argument here, the widget's style always wins over each
+span's own explicitly-set fields wherever both set the same field (as
+happens for the hint bar's `bg`).
+
+This pre-mutation is also entirely redundant: a few lines later, the exact
+same rendering loop already calls `$span->toStyledGraphemes($style)` per
+grapheme, which does the *correctly*-directioned merge
+(`$baseStyle->patchStyle($this->style)`, i.e. span wins) — but by then the
+span's own style had already been corrupted by the line above.
+
+**Fix**: delete that one redundant, wrongly-directioned pre-patch line.
+The already-correct per-grapheme merge in `toStyledGraphemes()` is
+sufficient on its own. Verified directly against a `Buffer` (same
+ground-truth cell-inspection technique used for the image-preview stripe
+bug): before the patch, a `Gray`-background/`White`-text badge span next to
+a widget-level `White`-background paragraph rendered as `White`-on-`White`
+(invisible); after the patch, it correctly renders `White`-on-`Gray`.
+
+Not yet reported upstream (php-tui/php-tui).
