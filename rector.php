@@ -9,7 +9,6 @@ use Rector\CodeQuality\Rector\If_\ExplicitBoolCompareRector;
 use Rector\CodeQuality\Rector\ClassMethod\LocallyCalledStaticMethodToNonStaticRector;
 use Rector\Config\RectorConfig;
 use Rector\Php53\Rector\Ternary\TernaryToElvisRector;
-use Rector\Php73\Rector\FuncCall\JsonThrowOnErrorRector;
 use Rector\Php74\Rector\Closure\ClosureToArrowFunctionRector;
 use Rector\Set\ValueObject\LevelSetList;
 use Rector\Set\ValueObject\SetList;
@@ -34,7 +33,6 @@ return static function (RectorConfig $rectorConfig): void {
 
     $rectorConfig->skip([
         TernaryToElvisRector::class,
-        JsonThrowOnErrorRector::class,
         ExplicitBoolCompareRector::class,
         ClosureToArrowFunctionRector::class,
         UnusedForeachValueToArrayKeysRector::class,
