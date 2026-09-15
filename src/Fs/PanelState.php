@@ -124,6 +124,30 @@ final class PanelState
         $this->selected = min($this->selected, max(count($this->entries) - 1, 0));
     }
 
+    /**
+     * Find the nearest entry whose name contains $query (case-insensitive),
+     * starting at $from (inclusive) and wrapping around the list. $forward
+     * controls search direction, mirroring vim's `/` and `?`.
+     */
+    public function findMatch(string $query, int $from, bool $forward): ?int
+    {
+        if ($query === '' || $this->entries === []) {
+            return null;
+        }
+        $needle = mb_strtolower($query);
+        $len = count($this->entries);
+        for ($offset = 0; $offset < $len; $offset++) {
+            $idx = $forward
+                ? ($from + $offset) % $len
+                : ($from + $len - $offset) % $len;
+            if (str_contains(mb_strtolower($this->entries[$idx]->name), $needle)) {
+                return $idx;
+            }
+        }
+
+        return null;
+    }
+
     /** Used for local panel navigation only. */
     public function enterSelected(): void
     {

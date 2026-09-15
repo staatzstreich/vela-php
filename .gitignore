@@ -1,4 +1,6 @@
+/log/
 /vendor/
+.idea
 .DS_Store
 /vela.phar
 /.box_dump/

@@ -31,6 +31,8 @@ final class HelpDialogRenderer
         ['Backspace', 'Verzeichnis nach oben'],
         ['Leertaste', 'Markieren'],
         ['*', 'Alle markieren/entmarkieren'],
+        ['/', 'Suche im aktiven Panel (jump-to-match)'],
+        ['n / N', 'Nächster / vorheriger Treffer'],
         ['F2', 'Umbenennen'],
         ['F3', 'Trennen'],
         ['F4', 'Im Editor bearbeiten'],

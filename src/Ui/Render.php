@@ -167,9 +167,16 @@ final class Render
 
         $hint = ParagraphWidget::fromText(Text::fromLine(Line::fromSpans(...$spans)))
             ->style(Style::default()->bg($theme->hintBarBg));
-        $status = ParagraphWidget::fromText(Text::fromString(
-            $app->statusMessage !== null ? ' ' . $app->statusMessage : ''
-        ))->style(Style::default()->fg($theme->statusMessage)->bg($theme->hintBarBg));
+
+        // Row 1: search prompt (while typing '/') or status message.
+        $statusText = $app->search !== null
+            ? Text::fromLine(Line::fromSpans(new Span(
+                " /{$app->search->query}",
+                Style::default()->fg($theme->statusMessage)->addModifier(Modifier::BOLD),
+            )))
+            : Text::fromString($app->statusMessage !== null ? ' ' . $app->statusMessage : '');
+        $status = ParagraphWidget::fromText($statusText)
+            ->style(Style::default()->fg($theme->statusMessage)->bg($theme->hintBarBg));
 
         return GridWidget::default()
             ->direction(Direction::Vertical)

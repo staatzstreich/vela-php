@@ -68,6 +68,12 @@ final class App
 
     public bool $helpVisible = false;
 
+    /** Incremental filename search ('/' key) — active while typing the query. */
+    public ?SearchState $search = null;
+
+    /** Last confirmed search query, reused by 'n' / 'N' to repeat the search. */
+    public ?string $lastSearch = null;
+
     public ?RenameDialog $renameDialog = null;
 
     public ?MkdirDialog $mkdirDialog = null;
@@ -165,6 +171,111 @@ final class App
         $this->running = false;
     }
 
+    /** Enter incremental search mode, anchored at the active panel's current selection. */
+    public function openSearch(): void
+    {
+        $this->search = new SearchState('', $this->activePanel()->selected);
+    }
+
+    /**
+     * Append a character to the search query and jump to the nearest match
+     * from the search's origin, if any.
+     */
+    public function searchPush(string $char): void
+    {
+        if ($this->search !== null) {
+            $this->search->query .= $char;
+        }
+        $this->searchReposition();
+    }
+
+    /** Remove the last character from the search query and re-jump. */
+    public function searchBackspace(): void
+    {
+        if ($this->search !== null && $this->search->query !== '') {
+            $this->search->query = mb_substr($this->search->query, 0, -1);
+        }
+        $this->searchReposition();
+    }
+
+    /** Recompute the match for the current query starting from the search origin. */
+    private function searchReposition(): void
+    {
+        $search = $this->search;
+        if ($search === null) {
+            return;
+        }
+        if ($search->query === '') {
+            $this->activePanel()->selected = $search->origin;
+
+            return;
+        }
+        $idx = $this->activePanel()->findMatch($search->query, $search->origin, true);
+        if ($idx !== null) {
+            $this->activePanel()->selected = $idx;
+        }
+    }
+
+    /**
+     * Confirm the current search (Enter): keep the cursor where it landed
+     * and remember the query for 'n' / 'N'.
+     */
+    public function confirmSearch(): void
+    {
+        $search = $this->search;
+        $this->search = null;
+        if ($search !== null && $search->query !== '') {
+            $this->lastSearch = $search->query;
+        }
+    }
+
+    /**
+     * Cancel the current search (Esc): revert the cursor to where it was
+     * before the search started.
+     */
+    public function cancelSearch(): void
+    {
+        $search = $this->search;
+        $this->search = null;
+        if ($search !== null) {
+            $this->activePanel()->selected = $search->origin;
+        }
+    }
+
+    /** Repeat the last confirmed search forward ('n'). */
+    public function searchNext(): void
+    {
+        if ($this->lastSearch === null) {
+            return;
+        }
+        $panel = $this->activePanel();
+        if ($panel->entries === []) {
+            return;
+        }
+        $from = ($panel->selected + 1) % count($panel->entries);
+        $idx = $panel->findMatch($this->lastSearch, $from, true);
+        if ($idx !== null) {
+            $panel->selected = $idx;
+        }
+    }
+
+    /** Repeat the last confirmed search backward ('N'). */
+    public function searchPrev(): void
+    {
+        if ($this->lastSearch === null) {
+            return;
+        }
+        $panel = $this->activePanel();
+        if ($panel->entries === []) {
+            return;
+        }
+        $from = ($panel->selected + count($panel->entries) - 1) % count($panel->entries);
+        $idx = $panel->findMatch($this->lastSearch, $from, false);
+        if ($idx !== null) {
+            $panel->selected = $idx;
+        }
+    }
+
     /**
      * Single entry point for all key input, mirroring main.rs's
      * handle_events() dialog-priority chain: F1 (help) always wins; while
@@ -230,8 +341,28 @@ final class App
             $this->handleProfileDialogKey($event, $this->profileDialog);
         } elseif ($this->imagePreviewDialog !== null) {
             $this->handleImagePreviewDialogKey($event, $this->imagePreviewDialog);
+        } elseif ($this->search !== null) {
+            $this->handleSearchKey($event);
         } else {
             $this->handleMainKey($event, $onTransferTick);
+        }
+    }
+
+    private function handleSearchKey(CharKeyEvent|CodedKeyEvent|FunctionKeyEvent $event): void
+    {
+        if ($event instanceof CodedKeyEvent) {
+            match ($event->code) {
+                KeyCode::Esc => $this->cancelSearch(),
+                KeyCode::Enter => $this->confirmSearch(),
+                KeyCode::Backspace => $this->searchBackspace(),
+                default => null,
+            };
+
+            return;
+        }
+
+        if ($event instanceof CharKeyEvent) {
+            $this->searchPush($event->char);
         }
     }
 
@@ -246,6 +377,9 @@ final class App
                 't' => $this->openTailDialog(),
                 'p' => $this->openProfileDialog(),
                 'v' => $this->openImagePreview(),
+                '/' => $this->openSearch(),
+                'n' => $this->searchNext(),
+                'N' => $this->searchPrev(),
                 default => null,
             };
 
