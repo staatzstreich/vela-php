@@ -38,6 +38,7 @@ final class HelpDialogRenderer
         ['F4', 'Im Editor bearbeiten'],
         ['F5', 'Hochladen'],
         ['F6', 'Herunterladen'],
+        ['Esc (bei Transfer)', 'Transfer abbrechen'],
         ['F7', 'Verzeichnis erstellen'],
         ['F8', 'Löschen'],
         ['F9 / p', 'Profile verwalten'],

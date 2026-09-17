@@ -391,6 +391,95 @@ final class TransferEngineTest extends TestCase
     }
 
     #[Test]
+    public function copyBatchStopsAndReportsCancelledWhenOnTickRequestsCancellation(): void
+    {
+        mkdir("{$this->scratchDir}/src");
+        mkdir("{$this->scratchDir}/dest");
+        file_put_contents("{$this->scratchDir}/src/a.txt", 'a');
+        file_put_contents("{$this->scratchDir}/src/b.txt", 'b');
+        file_put_contents("{$this->scratchDir}/src/c.txt", 'c');
+
+        $progress = new TransferProgress(3);
+        $tickCount = 0;
+        TransferEngine::copyBatch(
+            [
+                new FileEntry('a.txt', 1, null, false),
+                new FileEntry('b.txt', 1, null, false),
+                new FileEntry('c.txt', 1, null, false),
+            ],
+            "{$this->scratchDir}/src",
+            "{$this->scratchDir}/dest",
+            $progress,
+            // 2nd tick lands right after a.txt finishes (tick #1 fires
+            // before its copy, #2 right after) — cancelling there means
+            // a.txt is fully done but b.txt/c.txt never start.
+            static function (TransferProgress $p) use (&$tickCount): void {
+                $tickCount++;
+                if ($tickCount === 2) {
+                    $p->cancelled = true;
+                }
+            },
+        );
+
+        self::assertSame(TransferState::Cancelled, $progress->state);
+        self::assertSame(1, $progress->filesDone);
+        self::assertSame('a', file_get_contents("{$this->scratchDir}/dest/a.txt"));
+        self::assertFileDoesNotExist("{$this->scratchDir}/dest/b.txt");
+        self::assertFileDoesNotExist("{$this->scratchDir}/dest/c.txt");
+    }
+
+    #[Test]
+    public function copyBatchCancelledBeforeAnyFileCompletesCopiesNothing(): void
+    {
+        mkdir("{$this->scratchDir}/src");
+        mkdir("{$this->scratchDir}/dest");
+        file_put_contents("{$this->scratchDir}/src/a.txt", 'a');
+
+        $progress = new TransferProgress(1);
+        TransferEngine::copyBatch(
+            [new FileEntry('a.txt', 1, null, false)],
+            "{$this->scratchDir}/src",
+            "{$this->scratchDir}/dest",
+            $progress,
+            static function (TransferProgress $p): void {
+                $p->cancelled = true;
+            },
+        );
+
+        self::assertSame(TransferState::Cancelled, $progress->state);
+        self::assertSame(0, $progress->filesDone);
+        self::assertFileDoesNotExist("{$this->scratchDir}/dest/a.txt");
+    }
+
+    #[Test]
+    public function copyBatchCancellationUnwindsCleanlyOutOfNestedDirectoryRecursion(): void
+    {
+        mkdir("{$this->scratchDir}/src");
+        mkdir("{$this->scratchDir}/dest");
+        mkdir("{$this->scratchDir}/src/sub");
+        file_put_contents("{$this->scratchDir}/src/sub/one.txt", '1');
+        file_put_contents("{$this->scratchDir}/src/sub/two.txt", '2');
+
+        $progress = new TransferProgress(1);
+        $tickCount = 0;
+        TransferEngine::copyBatch(
+            [new FileEntry('sub', null, null, true)],
+            "{$this->scratchDir}/src",
+            "{$this->scratchDir}/dest",
+            $progress,
+            static function (TransferProgress $p) use (&$tickCount): void {
+                $tickCount++;
+                if ($tickCount === 2) {
+                    $p->cancelled = true;
+                }
+            },
+        );
+
+        self::assertSame(TransferState::Cancelled, $progress->state);
+        self::assertTrue(is_dir("{$this->scratchDir}/dest/sub"));
+    }
+
+    #[Test]
     public function copyBatchCopiesAReadOnlySourceFile(): void
     {
         mkdir("{$this->scratchDir}/src");

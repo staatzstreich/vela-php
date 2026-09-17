@@ -9,6 +9,7 @@ use PhpTui\Term\Event\CodedKeyEvent;
 use PhpTui\Term\Event\FunctionKeyEvent;
 use PhpTui\Term\KeyCode;
 use PHPUnit\Framework\Attributes\Test;
+use Vela\Transfer\TransferProgress;
 
 /**
  * Covers F5/F6 local-to-local copy (App::copyToRight()/copyToLeft(), added
@@ -188,6 +189,21 @@ final class AppCopyTest extends AppTestCase
 
         self::assertSame('Kopieren abgeschlossen', $app->statusMessage);
         self::assertNotNull(self::indexOf($app->right->entries, 'a.txt'));
+    }
+
+    #[Test]
+    public function anOnTickThatRequestsCancellationSetsAGermanCancelledStatusMessage(): void
+    {
+        file_put_contents("{$this->scratchLeft}/a.txt", 'hello');
+        $app = $this->makeApp();
+        $app->left->selected = self::mustIndexOf($app->left->entries, 'a.txt');
+
+        $app->handleKey(FunctionKeyEvent::new(5), static function (TransferProgress $progress): void {
+            $progress->cancelled = true;
+        });
+
+        self::assertSame('Kopieren abgebrochen', $app->statusMessage);
+        self::assertNull($app->activeTransfer);
     }
 
     #[Test]

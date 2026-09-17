@@ -18,6 +18,10 @@ use Vela\Fs\FileEntry;
  * the caller redraw between chunks so the UI doesn't look frozen, but input
  * genuinely is blocked until the transfer finishes. Good enough for a
  * prototype; pcntl_fork is the escalation path if that proves unacceptable.
+ * PHP-only addition (no Rust original): $onTick is also where the app
+ * checks for a pending Esc keypress and sets TransferProgress::$cancelled —
+ * tick() then throws TransferCancelledException to unwind cleanly out of
+ * whatever chunk/file loop is in progress, see tick() below.
  */
 final class TransferEngine
 {
@@ -46,6 +50,8 @@ final class TransferEngine
                 }
             }
             $progress->state = TransferState::Done;
+        } catch (TransferCancelledException) {
+            $progress->state = TransferState::Cancelled;
         } catch (Throwable $e) {
             $progress->state = TransferState::Failed;
             $progress->errorMessage = $e->getMessage();
@@ -77,6 +83,8 @@ final class TransferEngine
                 }
             }
             $progress->state = TransferState::Done;
+        } catch (TransferCancelledException) {
+            $progress->state = TransferState::Cancelled;
         } catch (Throwable $e) {
             $progress->state = TransferState::Failed;
             $progress->errorMessage = $e->getMessage();
@@ -244,6 +252,8 @@ final class TransferEngine
                 }
             }
             $progress->state = TransferState::Done;
+        } catch (TransferCancelledException) {
+            $progress->state = TransferState::Cancelled;
         } catch (Throwable $e) {
             $progress->state = TransferState::Failed;
             $progress->errorMessage = $e->getMessage();
@@ -368,10 +378,20 @@ final class TransferEngine
         return $pathReal === $ancestorReal || str_starts_with($pathReal . '/', $ancestorReal . '/');
     }
 
+    /**
+     * The guard on $progress->state here matters: this is also the final
+     * tick called right after the catch block above sets Done/Cancelled/
+     * Failed, and that trailing call must not itself throw — it's outside
+     * the try/catch, so an unguarded throw here would escape uploadBatch()/
+     * downloadBatch()/copyBatch() uncaught.
+     */
     private static function tick(TransferProgress $progress, ?callable $onTick): void
     {
         if ($onTick !== null) {
             $onTick($progress);
+        }
+        if ($progress->cancelled && $progress->state === TransferState::Running) {
+            throw new TransferCancelledException();
         }
     }
 

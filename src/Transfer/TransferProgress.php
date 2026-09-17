@@ -26,6 +26,13 @@ final class TransferProgress
 
     public int $filesTotal;
 
+    /**
+     * Set from outside (the transfer tick callback, on an Esc keypress) to
+     * request cancellation. TransferEngine::tick() checks this after every
+     * tick and unwinds via TransferCancelledException.
+     */
+    public bool $cancelled = false;
+
     public function __construct(int $filesTotal)
     {
         $this->filesTotal = max(1, $filesTotal);

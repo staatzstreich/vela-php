@@ -452,7 +452,9 @@ final class App
      * Upload the marked left-panel entries (or the highlighted entry when
      * nothing is marked) to the current remote directory. No-op when not
      * connected. Runs synchronously — $onTick is called between chunks so
-     * the caller can redraw a progress bar; input stays blocked meanwhile.
+     * the caller can redraw a progress bar; regular input stays blocked
+     * meanwhile, but Esc is polled from within $onTick and cancels (see
+     * TransferEngine::tick()/TransferCancelledException).
      */
     private function uploadActive(?callable $onTick = null): void
     {
@@ -483,6 +485,9 @@ final class App
         $this->activeTransfer = null;
         if ($progress->state === TransferState::Done) {
             $this->statusMessage = 'Upload abgeschlossen';
+            $this->tryRun(fn () => $this->setRemoteListing($sftp, $sftp->listDir()));
+        } elseif ($progress->state === TransferState::Cancelled) {
+            $this->statusMessage = 'Upload abgebrochen';
             $this->tryRun(fn () => $this->setRemoteListing($sftp, $sftp->listDir()));
         } else {
             $this->statusMessage = 'Upload fehlgeschlagen: ' . ($progress->errorMessage ?? 'unbekannter Fehler');
@@ -522,6 +527,9 @@ final class App
         $this->activeTransfer = null;
         if ($progress->state === TransferState::Done) {
             $this->statusMessage = 'Download abgeschlossen';
+            $this->tryRun(fn () => $this->left->loadLocal());
+        } elseif ($progress->state === TransferState::Cancelled) {
+            $this->statusMessage = 'Download abgebrochen';
             $this->tryRun(fn () => $this->left->loadLocal());
         } else {
             $this->statusMessage = 'Download fehlgeschlagen: ' . ($progress->errorMessage ?? 'unbekannter Fehler');
@@ -612,6 +620,9 @@ final class App
         $this->activeTransfer = null;
         if ($progress->state === TransferState::Done) {
             $this->statusMessage = 'Kopieren abgeschlossen';
+            $this->tryRun(fn () => $destPanel->loadLocal());
+        } elseif ($progress->state === TransferState::Cancelled) {
+            $this->statusMessage = 'Kopieren abgebrochen';
             $this->tryRun(fn () => $destPanel->loadLocal());
         } else {
             $this->statusMessage = 'Kopieren fehlgeschlagen: ' . ($progress->errorMessage ?? 'unbekannter Fehler');

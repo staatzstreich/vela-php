@@ -83,17 +83,36 @@ final class TransferBarRenderer
         return ParagraphWidget::fromText(Text::fromLine($line));
     }
 
+    /**
+     * PHP-only addition (no Rust original — vela cancels a background-thread
+     * transfer some other way, this port has none): a right-aligned "Esc
+     * Abbrechen" hint, in the same badge+label style as the main hint bar
+     * (Render::buildHintArea()), reserved out of the filename budget so a
+     * long filename never overlaps it.
+     */
     private static function buildFilenameRow(Area $area, TransferProgress $progress, Theme $theme): Widget
     {
+        $escBadge = new Span(' Esc ', Style::default()->bg($theme->hintBadgeBg)->fg($theme->hintBadgeFg)->addModifier(Modifier::BOLD));
+        $escLabel = 'Abbrechen ';
+        $hintLen = mb_strlen(' Esc ') + mb_strlen($escLabel);
+
         $detail = '';
         if ($progress->currentFile !== '') {
-            $available = max(0, $area->width - 2);
+            $available = max(0, $area->width - 2 - $hintLen);
             $prefix = ' → ';
             $budget = max(0, $available - mb_strlen($prefix));
             $detail = $prefix . Format::truncateName($progress->currentFile, $budget);
         }
 
-        return ParagraphWidget::fromText(Text::fromString($detail))
-            ->style(Style::default()->fg($theme->filenameText)->bg($theme->transferRowBg));
+        $padLen = max(0, $area->width - mb_strlen($detail) - $hintLen);
+
+        $line = Line::fromSpans(
+            new Span($detail, Style::default()->fg($theme->filenameText)),
+            new Span(str_repeat(' ', $padLen), Style::default()->fg($theme->filenameText)),
+            $escBadge,
+            new Span($escLabel, Style::default()->fg($theme->hintLabel)),
+        );
+
+        return ParagraphWidget::fromText(Text::fromLine($line))->style(Style::default()->bg($theme->transferRowBg));
     }
 }

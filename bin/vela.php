@@ -13,6 +13,7 @@ require __DIR__ . '/../vendor/autoload.php';
 use PhpTui\Term\Event\CharKeyEvent;
 use PhpTui\Term\Event\CodedKeyEvent;
 use PhpTui\Term\Event\FunctionKeyEvent;
+use PhpTui\Term\KeyCode;
 use PhpTui\Term\Terminal as TermTerminal;
 use PhpTui\Tui\Bridge\PhpTerm\PhpTermBackend;
 use PhpTui\Tui\DisplayBuilder;
@@ -150,18 +151,30 @@ function launchEditor(TermTerminal $terminal, Display $display, string $path): v
  * Transfers run synchronously (no portable PHP threading — see
  * Vela\Transfer\TransferEngine's docblock), so this is what keeps the UI
  * from looking frozen: called between chunks, it redraws the progress bar
- * at most every 50ms rather than on every single chunk callback.
+ * at most every 50ms rather than on every single chunk callback. At that
+ * same cadence it also polls the terminal for a pending Esc keypress — the
+ * only way input reaches the app while a transfer blocks the main loop —
+ * and marks TransferProgress::$cancelled, which TransferEngine::tick()
+ * turns into a clean unwind (see TransferCancelledException). Any other key
+ * pressed during a transfer is drained and dropped here rather than queued
+ * for after the transfer.
  */
-function makeTransferTick(Display $display, App $app): callable
+function makeTransferTick(TermTerminal $terminal, Display $display, App $app): callable
 {
     $last = 0.0;
 
-    return function () use ($display, $app, &$last): void {
+    return function () use ($terminal, $display, $app, &$last): void {
         $now = microtime(true);
         if ($now - $last < 0.05) {
             return;
         }
         $last = $now;
+
+        $event = $terminal->events()->next();
+        if ($event instanceof CodedKeyEvent && $event->code === KeyCode::Esc && $app->activeTransfer !== null) {
+            $app->activeTransfer->cancelled = true;
+        }
+
         $display->draw(Render::build($app, $display->viewportArea()));
     };
 }
@@ -202,7 +215,7 @@ function run_vela(TermTerminal $terminal, ?SftpConnection $sftp): void
         // "trickle in" character by character).
         do {
             if ($event instanceof CharKeyEvent || $event instanceof CodedKeyEvent || $event instanceof FunctionKeyEvent) {
-                $app->handleKey($event, makeTransferTick($display, $app));
+                $app->handleKey($event, makeTransferTick($terminal, $display, $app));
             }
             $event = $terminal->events()->next();
         } while ($event !== null && $app->running);
